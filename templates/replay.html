@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Replay {{ run.run_id }} | Agent Trace Workbench{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/runs/{{ run.run_id }}">{{ run.agent_name }}</a><span>/</span><span>Replay</span></div>
+<section class="detail-hero">
+    <div><div class="eyebrow">DETERMINISTIC REPLAY</div><h1>Replay report</h1><p class="hero-copy">{{ run.run_id }} · local handlers where available</p></div>
+    <div class="detail-actions"><a class="button button-quiet" href="/runs/{{ run.run_id }}">Back to run</a></div>
+</section>
+<section class="metric-grid detail-metrics">
+    <div class="metric-card"><span class="metric-label">Steps checked</span><strong>{{ report.total_steps }}</strong><span class="metric-note">tool calls replayed</span></div>
+    <div class="metric-card"><span class="metric-label">Result matches</span><strong>{{ report.matched_steps }}</strong><span class="metric-note">stable JSON comparison</span></div>
+    <div class="metric-card {% if report.matched_steps != report.total_steps %}metric-alert{% endif %}"><span class="metric-label">Replay failures</span><strong>{{ report.failed_steps }}</strong><span class="metric-note">handler exceptions</span></div>
+</section>
+<section class="section-block">
+    <div class="section-heading"><div><div class="eyebrow">REPLAY LEDGER</div><h2>Step by step</h2></div><span class="section-meta">deterministic: {{ report.deterministic }}</span></div>
+    <div class="replay-list">
+        {% for step in report.steps %}
+        <article class="replay-row {% if not step.result_match %}replay-mismatch{% endif %}">
+            <span class="replay-index">{{ '%02d'|format(step.index) }}</span>
+            <div class="replay-main"><div class="trace-title-row"><div><span class="trace-kind">{{ step.mode }}</span><h3>{{ step.tool_name }}</h3></div><span class="badge badge-{% if step.result_match %}ok{% else %}error{% endif %}">{% if step.result_match %}match{% else %}changed{% endif %}</span></div><div class="trace-meta"><span>recorded: {{ step.recorded_outcome }}</span><span>replayed: {{ step.replayed_outcome }}</span></div>{% if step.error %}<div class="failure-box"><strong>Handler error</strong><span>{{ step.error }}</span></div>{% endif %}</div>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

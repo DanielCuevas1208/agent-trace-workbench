@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools==75.8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-trace-workbench"
+version = "0.1.0"
+description = "A local workbench for recording, replaying, comparing, and inspecting agent traces."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.115.6",
+    "jinja2==3.1.5",
+    "opentelemetry-api==1.29.0",
+    "opentelemetry-sdk==1.29.0",
+    "pydantic==2.10.5",
+    "uvicorn[standard]==0.34.0",
+]
+
+[project.scripts]
+atw = "agent_trace_workbench.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agent_trace_workbench*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q -p no:cacheprovider"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]

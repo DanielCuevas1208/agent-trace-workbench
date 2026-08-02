@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Compare runs | Agent Trace Workbench{% endblock %}
+{% block content %}
+<section class="detail-hero compare-hero"><div><div class="eyebrow">RUN COMPARISON</div><h1>Find the meaningful delta.</h1><p class="hero-copy">Align ordered tool calls and inspect changes in arguments, timing, results, and outcomes.</p></div></section>
+<section class="panel compare-picker">
+    <form method="get" action="/compare" class="compare-form">
+        <label>Baseline run<select name="run_a" required><option value="">Select baseline</option>{% for run in runs %}<option value="{{ run.run_id }}" {% if selected_a == run.run_id %}selected{% endif %}>{{ run.run_id }} · {{ run.agent_name }}</option>{% endfor %}</select></label>
+        <span class="compare-vs">VS</span>
+        <label>Candidate run<select name="run_b" required><option value="">Select candidate</option>{% for run in runs %}<option value="{{ run.run_id }}" {% if selected_b == run.run_id %}selected{% endif %}>{{ run.run_id }} · {{ run.agent_name }}</option>{% endfor %}</select></label>
+        <button class="button button-primary" type="submit">Compare <span aria-hidden="true">&#8594;</span></button>
+    </form>
+</section>
+{% if report %}
+<section class="metric-grid detail-metrics">
+    <div class="metric-card"><span class="metric-label">Changed calls</span><strong>{{ report.changed_tools }}</strong><span class="metric-note">of {{ report.tool_diffs|length }} positions</span></div>
+    <div class="metric-card"><span class="metric-label">Baseline duration</span><strong>{{ report.run_a.duration_ms|round(1) }}<small> ms</small></strong><span class="metric-note">{{ report.run_a.status }}</span></div>
+    <div class="metric-card {% if report.total_duration_delta_ms > 0 %}metric-alert{% endif %}"><span class="metric-label">Timing delta</span><strong>{% if report.total_duration_delta_ms > 0 %}+{% endif %}{{ report.total_duration_delta_ms|round(1) }}<small> ms</small></strong><span class="metric-note">candidate minus baseline</span></div>
+</section>
+<section class="section-block">
+    <div class="section-heading"><div><div class="eyebrow">TOOL CALL DELTA</div><h2>Position-by-position</h2></div><span class="section-meta">A baseline · B candidate</span></div>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Tool A</th><th>Tool B</th><th>State</th><th>Arguments</th><th>Result</th><th>Timing</th></tr></thead><tbody>{% for diff in report.tool_diffs %}<tr class="row-{{ diff.state }}"><td class="table-index">{{ '%02d'|format(diff.index) }}</td><td class="mono">{{ diff.tool_a or '—' }}</td><td class="mono">{{ diff.tool_b or '—' }}</td><td><span class="badge badge-{{ 'ok' if diff.state == 'same' else 'error' }}">{{ diff.state }}</span></td><td>{{ 'changed' if diff.arguments_changed else 'same' }}</td><td>{{ 'changed' if diff.result_changed else 'same' }}</td><td>{% if diff.duration_delta_ms is not none %}{% if diff.duration_delta_ms > 0 %}+{% endif %}{{ diff.duration_delta_ms|round(1) }} ms{% else %}—{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+    {% if report.run_a.status == 'error' or report.run_b.status == 'error' %}<div class="failure-box compare-failure"><strong>Failure signal</strong><span>At least one compared run contains an error outcome. Open the run to inspect the recorded error.</span></div>{% endif %}
+</section>
+{% else %}
+<div class="empty-state compare-empty"><span class="empty-mark">A / B</span><h3>Choose two runs</h3><p>The workbench compares calls by recorded order. Start with the bundled baseline and candidate fixtures.</p></div>
+{% endif %}
+{% endblock %}

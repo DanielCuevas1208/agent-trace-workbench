@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Runs | Agent Trace Workbench{% endblock %}
+{% block content %}
+<section class="hero">
+    <div class="eyebrow">LOCAL OBSERVABILITY / FIRST RELEASE</div>
+    <h1>See what your agent did.<br><em>Replay why it did it.</em></h1>
+    <p class="hero-copy">Ingest local JSON traces, inspect every tool boundary, replay recorded work, and compare runs without a hosted service.</p>
+    <div class="hero-actions">
+        <a class="button button-primary" href="#ingest">Ingest a trace <span aria-hidden="true">&#8594;</span></a>
+        <a class="button button-quiet" href="/compare">Compare runs</a>
+    </div>
+</section>
+
+<section class="metric-grid" aria-label="Workbench metrics">
+    <div class="metric-card"><span class="metric-label">Recorded runs</span><strong>{{ stats.runs }}</strong><span class="metric-note">in this workspace</span></div>
+    <div class="metric-card"><span class="metric-label">Tool calls</span><strong>{{ stats.tools }}</strong><span class="metric-note">across recent runs</span></div>
+    <div class="metric-card metric-alert"><span class="metric-label">Runs with failures</span><strong>{{ stats.failures }}</strong><span class="metric-note">ready for inspection</span></div>
+</section>
+
+<section class="workspace-grid">
+    <div class="panel ingest-panel" id="ingest">
+        <div class="panel-heading">
+            <div><div class="eyebrow">01 / INGEST</div><h2>Bring a trace into the room</h2></div>
+            <span class="panel-index">JSON</span>
+        </div>
+        <p>Send one portable trace document to the local SQLite store. The API replaces a run with the same run ID.</p>
+        <form id="ingest-form">
+            <label for="trace-json">Trace JSON</label>
+            <textarea id="trace-json" name="trace_json" spellcheck="false" placeholder="Paste a trace document here..."></textarea>
+            <div class="form-row">
+                <button class="button button-primary" type="submit">Store trace <span aria-hidden="true">&#8594;</span></button>
+                <span id="ingest-status" class="form-status" role="status"></span>
+            </div>
+        </form>
+        <div class="code-hint"><span>CLI</span><code>atw ingest fixtures/run_baseline.json</code></div>
+    </div>
+    <div class="panel architecture-panel">
+        <div class="panel-heading"><div><div class="eyebrow">02 / ORIENT</div><h2>Three views. One local record.</h2></div></div>
+        <div class="view-list">
+            <a href="#recent-runs"><span class="view-number">A</span><span><strong>Inspect</strong><small>Timeline, attributes, and failures</small></span><span class="view-arrow">&#8599;</span></a>
+            <a href="#recent-runs"><span class="view-number">B</span><span><strong>Replay</strong><small>Stable handlers or recorded fallback</small></span><span class="view-arrow">&#8599;</span></a>
+            <a href="/compare"><span class="view-number">C</span><span><strong>Compare</strong><small>Calls, timing, results, and outcomes</small></span><span class="view-arrow">&#8599;</span></a>
+        </div>
+        <div class="architecture-line"><span class="dot"></span>FastAPI <span class="line"></span> SQLite <span class="line"></span> OpenTelemetry</div>
+    </div>
+</section>
+
+<section id="recent-runs" class="section-block">
+    <div class="section-heading"><div><div class="eyebrow">03 / TRACE LIBRARY</div><h2>Recent runs</h2></div><span class="section-meta">{{ runs|length }} shown</span></div>
+    {% if runs %}
+    <div class="run-grid">
+        {% for run in runs %}
+        <a class="run-card" href="/runs/{{ run.run_id }}">
+            <div class="run-card-top"><span class="status-dot status-{{ run.status }}"></span><span class="status-text">{{ run.status }}</span><span class="run-duration">{{ run.duration_ms|round(1) }} ms</span></div>
+            <h3>{{ run.agent_name }}</h3>
+            <p class="run-id">{{ run.run_id }}</p>
+            <div class="run-card-bottom"><span>{{ run.tool_count }} tool calls</span><span>{{ run.source_name }}</span></div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state"><span class="empty-mark">+</span><h3>No runs yet</h3><p>Load the bundled fixtures to make the workbench visible.</p><code>atw ingest fixtures/run_baseline.json</code></div>
+    {% endif %}
+</section>
+{% endblock %}

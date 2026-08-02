@@ -1,0 +1,83 @@
+{
+  "trace_id": "trace-demo-002",
+  "run_id": "run-candidate-001",
+  "agent_name": "catalog-assistant",
+  "agent_version": "0.2.0",
+  "started_at": "2026-07-31T09:05:00+00:00",
+  "ended_at": "2026-07-31T09:05:00.280000+00:00",
+  "metadata": {
+    "scenario": "desk-lamp-stock-check",
+    "environment": "fixture",
+    "change": "reserve-after-check"
+  },
+  "spans": [
+    {
+      "span_id": "span-agent-101",
+      "name": "agent.run",
+      "kind": "agent",
+      "start_time": "2026-07-31T09:05:00+00:00",
+      "end_time": "2026-07-31T09:05:00.280000+00:00",
+      "status": "error",
+      "attributes": {"request.kind": "inventory_check"},
+      "sequence": 0
+    },
+    {
+      "span_id": "span-tool-101",
+      "name": "search_catalog",
+      "kind": "tool",
+      "parent_span_id": "span-agent-101",
+      "start_time": "2026-07-31T09:05:00.010000+00:00",
+      "end_time": "2026-07-31T09:05:00.085000+00:00",
+      "status": "ok",
+      "attributes": {"tool.version": "fixture-2"},
+      "sequence": 1,
+      "tool_call": {
+        "name": "search_catalog",
+        "arguments": {"query": "desk lamp"},
+        "result": {
+          "query": "desk lamp",
+          "items": [
+            {"sku": "lamp-01", "name": "Desk Lamp", "price": 39.0},
+            {"sku": "lamp-02", "name": "Task Light", "price": 52.0}
+          ]
+        },
+        "outcome": "success"
+      }
+    },
+    {
+      "span_id": "span-tool-102",
+      "name": "get_inventory",
+      "kind": "tool",
+      "parent_span_id": "span-agent-101",
+      "start_time": "2026-07-31T09:05:00.140000+00:00",
+      "end_time": "2026-07-31T09:05:00.195000+00:00",
+      "status": "ok",
+      "attributes": {"tool.version": "fixture-2"},
+      "sequence": 2,
+      "tool_call": {
+        "name": "get_inventory",
+        "arguments": {"sku": "lamp-01"},
+        "result": {"sku": "lamp-01", "available": 9},
+        "outcome": "success"
+      }
+    },
+    {
+      "span_id": "span-tool-103",
+      "name": "reserve_inventory",
+      "kind": "tool",
+      "parent_span_id": "span-agent-101",
+      "start_time": "2026-07-31T09:05:00.205000+00:00",
+      "end_time": "2026-07-31T09:05:00.260000+00:00",
+      "status": "error",
+      "attributes": {"tool.version": "fixture-2"},
+      "sequence": 3,
+      "tool_call": {
+        "name": "reserve_inventory",
+        "arguments": {"sku": "lamp-01", "quantity": 10},
+        "result": null,
+        "outcome": "failure",
+        "error": "reservation window expired"
+      }
+    }
+  ]
+}

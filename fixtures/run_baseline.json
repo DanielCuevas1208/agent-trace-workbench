@@ -1,0 +1,75 @@
+{
+  "trace_id": "trace-demo-001",
+  "run_id": "run-baseline-001",
+  "agent_name": "catalog-assistant",
+  "agent_version": "0.1.0",
+  "started_at": "2026-07-31T09:00:00+00:00",
+  "ended_at": "2026-07-31T09:00:00.220000+00:00",
+  "metadata": {
+    "scenario": "desk-lamp-stock-check",
+    "environment": "fixture"
+  },
+  "spans": [
+    {
+      "span_id": "span-agent-001",
+      "name": "agent.run",
+      "kind": "agent",
+      "start_time": "2026-07-31T09:00:00+00:00",
+      "end_time": "2026-07-31T09:00:00.220000+00:00",
+      "status": "ok",
+      "attributes": {"request.kind": "inventory_check"},
+      "sequence": 0
+    },
+    {
+      "span_id": "span-tool-001",
+      "name": "search_catalog",
+      "kind": "tool",
+      "parent_span_id": "span-agent-001",
+      "start_time": "2026-07-31T09:00:00.010000+00:00",
+      "end_time": "2026-07-31T09:00:00.070000+00:00",
+      "status": "ok",
+      "attributes": {"tool.version": "fixture-1"},
+      "sequence": 1,
+      "tool_call": {
+        "name": "search_catalog",
+        "arguments": {"query": "desk lamp"},
+        "result": {
+          "query": "desk lamp",
+          "items": [
+            {"sku": "lamp-01", "name": "Desk Lamp", "price": 39.0},
+            {"sku": "lamp-02", "name": "Task Light", "price": 52.0}
+          ]
+        },
+        "outcome": "success"
+      }
+    },
+    {
+      "span_id": "span-llm-001",
+      "name": "agent.plan",
+      "kind": "llm",
+      "parent_span_id": "span-agent-001",
+      "start_time": "2026-07-31T09:00:00.075000+00:00",
+      "end_time": "2026-07-31T09:00:00.110000+00:00",
+      "status": "ok",
+      "attributes": {"model": "local-fixture"},
+      "sequence": 2
+    },
+    {
+      "span_id": "span-tool-002",
+      "name": "get_inventory",
+      "kind": "tool",
+      "parent_span_id": "span-agent-001",
+      "start_time": "2026-07-31T09:00:00.120000+00:00",
+      "end_time": "2026-07-31T09:00:00.160000+00:00",
+      "status": "ok",
+      "attributes": {"tool.version": "fixture-1"},
+      "sequence": 3,
+      "tool_call": {
+        "name": "get_inventory",
+        "arguments": {"sku": "lamp-01"},
+        "result": {"sku": "lamp-01", "available": 12},
+        "outcome": "success"
+      }
+    }
+  ]
+}

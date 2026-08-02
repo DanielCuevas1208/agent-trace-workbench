@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ run.agent_name }} | Agent Trace Workbench{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/">Runs</a><span>/</span><span>{{ run.run_id }}</span></div>
+<section class="detail-hero">
+    <div>
+        <div class="eyebrow">RUN INSPECTION</div>
+        <h1>{{ run.agent_name }}</h1>
+        <p class="hero-copy">{{ run.run_id }} · {{ run.agent_version }} · {{ run.source_name }}</p>
+    </div>
+    <div class="detail-actions"><span class="badge badge-{{ run.status }}">{{ run.status }}</span><a class="button button-primary" href="/runs/{{ run.run_id }}/replay">Replay run <span aria-hidden="true">&#8594;</span></a></div>
+</section>
+<section class="metric-grid detail-metrics">
+    <div class="metric-card"><span class="metric-label">Run duration</span><strong>{{ run.duration_ms|round(1) }}<small> ms</small></strong><span class="metric-note">wall-clock span</span></div>
+    <div class="metric-card"><span class="metric-label">Tool calls</span><strong>{{ run.tool_count }}</strong><span class="metric-note">ordered by sequence</span></div>
+    <div class="metric-card"><span class="metric-label">Trace ID</span><strong class="metric-code">{{ run.trace_id }}</strong><span class="metric-note">portable identity</span></div>
+</section>
+<section class="section-block trace-section">
+    <div class="section-heading"><div><div class="eyebrow">TRACE WATERFALL</div><h2>Recorded activity</h2></div><span class="section-meta">{{ run.spans|length }} spans</span></div>
+    <div class="trace-list">
+        {% for span in run.spans %}
+        <article class="trace-row trace-{{ span.kind }} {% if span.status == 'error' %}trace-error{% endif %}">
+            <div class="trace-rail"><span class="trace-marker"></span>{% if not loop.last %}<span class="trace-connector"></span>{% endif %}</div>
+            <div class="trace-main">
+                <div class="trace-title-row"><div><span class="trace-kind">{{ span.kind }}</span><h3>{{ span.name }}</h3></div><span class="trace-time">{{ span.duration_ms|round(1) }} ms</span></div>
+                <div class="trace-meta"><span>{{ span.span_id }}</span>{% if span.parent_span_id %}<span>parent {{ span.parent_span_id }}</span>{% endif %}<span class="badge badge-{{ span.status }}">{{ span.status }}</span></div>
+                {% if span.tool_call %}
+                <div class="tool-grid">
+                    <div><span class="field-label">Arguments</span><pre>{{ span.tool_call.arguments|tojson(indent=2) }}</pre></div>
+                    <div><span class="field-label">Result</span><pre>{{ span.tool_call.result|tojson(indent=2) }}</pre></div>
+                </div>
+                {% if span.tool_call.error %}<div class="failure-box"><strong>Failure</strong><span>{{ span.tool_call.error }}</span></div>{% endif %}
+                {% endif %}
+                {% if span.attributes %}<details class="attributes"><summary>Span attributes</summary><pre>{{ span.attributes|tojson(indent=2) }}</pre></details>{% endif %}
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}
