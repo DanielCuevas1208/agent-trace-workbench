@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from .compare import compare_runs
+from .ingestion import DirectoryWatcher, watch_directory
 from .models import TraceDocument
 from .replay import default_replay_engine
 from .storage import TraceStore
@@ -30,6 +31,12 @@ def build_parser() -> argparse.ArgumentParser:
     compare = subparsers.add_parser("compare", help="Compare two recorded runs")
     compare.add_argument("run_a")
     compare.add_argument("run_b")
+
+    watch = subparsers.add_parser("watch", help="Watch a directory for local JSON traces")
+    watch.add_argument("directory", type=Path)
+    watch.add_argument("--pattern", default="*.json")
+    watch.add_argument("--interval", type=float, default=2.0, dest="interval_seconds")
+    watch.add_argument("--once", action="store_true", help="Scan once and exit")
     return parser
 
 
@@ -52,6 +59,9 @@ def main() -> None:
         if trace_a is None or trace_b is None:
             raise SystemExit("Both run IDs must exist")
         print(json.dumps(compare_runs(trace_a, trace_b).as_dict(), indent=2))
+    elif args.command == "watch":
+        watcher = DirectoryWatcher(store, args.directory, args.pattern)
+        watch_directory(watcher, args.interval_seconds, args.once)
 
 
 if __name__ == "__main__":

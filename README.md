@@ -4,7 +4,7 @@ Agent Trace Workbench keeps agent-run evidence on your machine.
 
 It records local JSON traces in SQLite. It replays tool calls with deterministic handlers. It compares runs by call order, timing, results, and outcomes.
 
-The first release provides a small FastAPI interface. It supports trace ingestion, run inspection, replay reports, and failure review.
+Release 0.2 adds a polling watcher for local trace folders. It reports schema errors without stopping valid files.
 
 ## Value
 
@@ -16,6 +16,8 @@ The design supports repeatable review. A replay uses a registered local handler 
 
 No hosted service is required. The SQLite database stays in the local `data` directory.
 
+The watcher supports a common handoff. An agent writes a JSON file. The workbench finds the file and records the run.
+
 ## Architecture
 
 ```text
@@ -23,14 +25,15 @@ local JSON trace
        |
        v
 Pydantic contract ---> SQLite trace store ---> FastAPI views and JSON API
-                              |
-                    +---------+---------+
-                    v                   v
-              replay engine       comparison engine
+       ^                      |
+       |                      +---------+---------+
+directory watcher             v                   v
+                       replay engine       comparison engine
 ```
 
 - `models.py` defines the portable trace contract.
 - `storage.py` owns the SQLite schema and idempotent ingestion.
+- `ingestion.py` watches JSON files and returns stable schema error reports.
 - `replay.py` runs deterministic local handlers and records mismatches.
 - `compare.py` aligns tool calls by recorded position.
 - `main.py` serves the interface and the JSON API.
@@ -48,7 +51,7 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-The locked requirements file includes application and verification dependencies.
+`requirements.lock` pins application and verification dependencies.
 
 ## Run the sample
 
@@ -99,6 +102,33 @@ python -m agent_trace_workbench.cli compare run-baseline-001 run-candidate-001
 
 The comparison reports one changed result and one added failing call.
 
+Watch a folder once.
+
+```powershell
+python -m agent_trace_workbench.cli --db data/workbench.db watch fixtures --once
+```
+
+The watcher scans top-level JSON files. It stores valid traces and returns file-level errors.
+
+This example shows two valid files and one invalid file.
+
+```json
+{
+  "discovered_files": 3,
+  "processed_files": 3,
+  "ingested_files": 2,
+  "error_count": 1,
+  "errors": [
+    {
+      "source_name": "broken.json",
+      "kind": "invalid_json"
+    }
+  ]
+}
+```
+
+Run the watcher continuously by omitting `--once`. It checks for changed files every two seconds.
+
 ## Trace contract
 
 A trace requires `trace_id`, `run_id`, `agent_name`, and `spans`.
@@ -121,7 +151,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers schema validation, idempotent storage, deterministic replay, comparison, and API routes.
+The test suite covers schema validation, idempotent storage, directory ingestion, deterministic replay, comparison, and API routes.
 
 Run the checks with these commands.
 
@@ -131,7 +161,7 @@ ruff check .
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 11 tests, Ruff lint, and Python compilation. CI runs the same checks on every push and pull request.
+Current verification passes 13 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on every push and pull request.
 
 ## Limitations
 
@@ -141,13 +171,17 @@ Comparison aligns tool calls by recorded position. It does not infer semantic ca
 
 SQLite is suitable for a local workbench. This release does not coordinate multiple writers.
 
-The UI accepts one trace document per request. It does not watch a directory.
+The UI accepts one trace document per request. Use the CLI watcher for directory ingestion.
+
+The watcher scans one directory level. It does not recurse into child directories.
+
+The watcher uses file size and modification time. A rare same-size, same-time rewrite may wait for the next change.
 
 OpenTelemetry spans cover workbench operations. The release does not export agent spans to a remote collector.
 
 ## Roadmap
 
-- Release 0.2: add directory watch ingestion with schema error reports.
+- Release 0.2 complete: add directory watch ingestion with schema error reports.
 - Release 0.3: add configurable replay handlers and side-effect guards.
 - Release 0.4: add span filtering, search, and saved comparisons.
 - Release 0.5: add OTLP import and local export files.
@@ -161,3 +195,5 @@ OpenTelemetry spans cover workbench operations. The release does not export agen
 `static/` and `templates/` contain the presentation layer.
 
 `data/` is created at runtime and remains ignored by Git.
+
+`requirements.lock` pins the direct dependencies used by local setup and CI.
