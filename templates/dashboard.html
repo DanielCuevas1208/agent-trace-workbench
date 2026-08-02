@@ -2,9 +2,9 @@
 {% block title %}Runs | Agent Trace Workbench{% endblock %}
 {% block content %}
 <section class="hero">
-    <div class="eyebrow">LOCAL OBSERVABILITY / FIRST RELEASE</div>
+    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 0.2</div>
     <h1>See what your agent did.<br><em>Replay why it did it.</em></h1>
-    <p class="hero-copy">Ingest local JSON traces, inspect every tool boundary, replay recorded work, and compare runs without a hosted service.</p>
+    <p class="hero-copy">Ingest local JSON traces, watch a folder, inspect every tool boundary, replay recorded work, and compare runs without a hosted service.</p>
     <div class="hero-actions">
         <a class="button button-primary" href="#ingest">Ingest a trace <span aria-hidden="true">&#8594;</span></a>
         <a class="button button-quiet" href="/compare">Compare runs</a>
@@ -33,6 +33,7 @@
             </div>
         </form>
         <div class="code-hint"><span>CLI</span><code>atw ingest fixtures/run_baseline.json</code></div>
+        <div class="code-hint"><span>WATCH</span><code>atw watch traces --once</code></div>
     </div>
     <div class="panel architecture-panel">
         <div class="panel-heading"><div><div class="eyebrow">02 / ORIENT</div><h2>Three views. One local record.</h2></div></div>
