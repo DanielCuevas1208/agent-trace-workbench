@@ -13,8 +13,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .compare import compare_runs
+from .handlers import ReplayPolicy, load_handler_config
 from .models import TraceDocument
-from .replay import default_replay_engine
+from .replay import ReplayEngine, default_replay_engine
 from .storage import TraceStore
 from .telemetry import configure_telemetry
 
@@ -30,8 +31,9 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
 
     configure_telemetry()
     database_path = db_path or os.getenv("ATW_DB_PATH", "data/workbench.db")
-    app = FastAPI(title="Agent Trace Workbench", version="0.1.0")
+    app = FastAPI(title="Agent Trace Workbench", version="0.3.0")
     app.state.store = TraceStore(database_path)
+    app.state.replay_engine = _build_replay_engine()
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 
     @app.get("/", response_class=HTMLResponse)
@@ -47,7 +49,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.get("/runs/{run_id}/replay", response_class=HTMLResponse)
     def replay_page(request: Request, run_id: str) -> Any:
         trace = _get_trace_or_404(app.state.store, run_id)
-        report = default_replay_engine().replay(trace)
+        report = app.state.replay_engine.replay(trace)
         context = {"run": app.state.store.get_run(run_id), "report": report.as_dict()}
         return render_template(request, "replay.html", context)
 
@@ -82,7 +84,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/runs/{run_id}/replay")
     def api_replay(run_id: str) -> dict[str, Any]:
         trace = _get_trace_or_404(app.state.store, run_id)
-        return default_replay_engine().replay(trace).as_dict()
+        return app.state.replay_engine.replay(trace).as_dict()
 
     @app.get("/api/compare")
     def api_compare(run_a: str, run_b: str) -> dict[str, Any]:
@@ -91,6 +93,26 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         return compare_runs(trace_a, trace_b).as_dict()
 
     return app
+
+
+def _build_replay_engine() -> ReplayEngine:
+    """Build a replay engine from local environment configuration."""
+
+    engine = default_replay_engine()
+    config_path = os.getenv("ATW_HANDLERS_CONFIG")
+    if config_path:
+        config = load_handler_config(config_path)
+        engine.load_config(config, base_dir=Path(config_path).parent)
+    policy = os.getenv("ATW_REPLAY_POLICY")
+    if policy:
+        try:
+            engine.policy = ReplayPolicy(policy)
+        except ValueError as error:
+            raise ValueError(
+                f"ATW_REPLAY_POLICY must be one of "
+                f"{', '.join(item.value for item in ReplayPolicy)}"
+            ) from error
+    return engine
 
 
 def render_template(request: Request, name: str, context: dict[str, Any]) -> HTMLResponse:

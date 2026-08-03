@@ -1,0 +1,23 @@
+{
+  "policy": "strict",
+  "handlers": [
+    {
+      "tool": "search_catalog",
+      "script": "handlers/search_catalog.py",
+      "side_effect": "read_only"
+    },
+    {
+      "tool": "get_inventory",
+      "script": "handlers/get_inventory.py",
+      "side_effect": "read_only"
+    },
+    {
+      "tool": "reserve_inventory",
+      "result": {
+        "reservation_id": "rsv-9ab1",
+        "status": "confirmed"
+      },
+      "side_effect": "local_write"
+    }
+  ]
+}

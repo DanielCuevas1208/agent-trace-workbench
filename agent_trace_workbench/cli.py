@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from .compare import compare_runs
+from .handlers import ReplayPolicy, load_handler_config
 from .ingestion import DirectoryWatcher, watch_directory
 from .models import TraceDocument
 from .replay import default_replay_engine
@@ -27,6 +28,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     replay = subparsers.add_parser("replay", help="Replay a recorded run")
     replay.add_argument("run_id")
+    replay.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Local JSON handler configuration",
+    )
+    replay.add_argument(
+        "--policy",
+        choices=[policy.value for policy in ReplayPolicy],
+        default=None,
+        help="Override the side-effect policy",
+    )
 
     compare = subparsers.add_parser("compare", help="Compare two recorded runs")
     compare.add_argument("run_a")
@@ -52,7 +65,15 @@ def main() -> None:
         trace = store.get_trace(args.run_id)
         if trace is None:
             raise SystemExit(f"Run not found: {args.run_id}")
-        print(json.dumps(default_replay_engine().replay(trace).as_dict(), indent=2))
+        engine = default_replay_engine()
+        if args.config is not None:
+            config = load_handler_config(args.config)
+            if args.policy is not None:
+                config.policy = ReplayPolicy(args.policy)
+            engine.load_config(config, base_dir=args.config.parent)
+        elif args.policy is not None:
+            engine.policy = ReplayPolicy(args.policy)
+        print(json.dumps(engine.replay(trace).as_dict(), indent=2))
     elif args.command == "compare":
         trace_a = store.get_trace(args.run_a)
         trace_b = store.get_trace(args.run_b)

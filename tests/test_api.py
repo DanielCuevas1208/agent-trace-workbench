@@ -1,6 +1,10 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from agent_trace_workbench.main import create_app
+
+FIXTURES = str(Path(__file__).parents[1] / "fixtures")
 
 
 def test_api_supports_ingest_inspect_replay_and_compare(tmp_path, baseline, candidate):
@@ -26,3 +30,16 @@ def test_api_supports_ingest_inspect_replay_and_compare(tmp_path, baseline, cand
 def test_api_reports_missing_runs(tmp_path):
     client = TestClient(create_app(tmp_path / "api.db"))
     assert client.get("/api/runs/not-here").status_code == 404
+
+
+def test_api_applies_environment_handler_config(tmp_path, candidate, monkeypatch):
+    monkeypatch.setenv("ATW_HANDLERS_CONFIG", FIXTURES + "/handlers.json")
+    monkeypatch.setenv("ATW_REPLAY_POLICY", "strict")
+    client = TestClient(create_app(tmp_path / "api.db"))
+    client.post("/api/traces", json=candidate.as_jsonable())
+
+    report = client.get("/api/runs/run-candidate-001/replay").json()
+
+    assert report["policy"] == "strict"
+    assert report["guarded_steps"] == 1
+    assert report["steps"][-1]["mode"] == "guarded"
