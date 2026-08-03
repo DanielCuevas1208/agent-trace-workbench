@@ -33,8 +33,9 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
 
     configure_telemetry()
     database_path = db_path or os.getenv("ATW_DB_PATH", "data/workbench.db")
-    app = FastAPI(title="Agent Trace Workbench", version="0.5.0")
-    app.state.store = TraceStore(database_path)
+    busy_timeout_ms = _env_int("ATW_DB_BUSY_TIMEOUT_MS", 5000)
+    app = FastAPI(title="Agent Trace Workbench", version="0.6.0")
+    app.state.store = TraceStore(database_path, busy_timeout_ms=busy_timeout_ms)
     app.state.replay_engine = _build_replay_engine()
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 
@@ -47,7 +48,12 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         return render_template(
             request,
             "dashboard.html",
-            {"runs": runs, "stats": _stats(runs), "query": q or ""},
+            {
+                "runs": runs,
+                "stats": _stats(runs),
+                "query": q or "",
+                "store": app.state.store.store_info(),
+            },
         )
 
     @app.get("/runs/{run_id}", response_class=HTMLResponse)
@@ -66,14 +72,18 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         return render_template(
             request,
             "run.html",
-            {"run": run, "filters": filter_set},
+            {"run": run, "filters": filter_set, "store": app.state.store.store_info()},
         )
 
     @app.get("/runs/{run_id}/replay", response_class=HTMLResponse)
     def replay_page(request: Request, run_id: str) -> Any:
         trace = _get_trace_or_404(app.state.store, run_id)
         report = app.state.replay_engine.replay(trace)
-        context = {"run": app.state.store.get_run(run_id), "report": report.as_dict()}
+        context = {
+            "run": app.state.store.get_run(run_id),
+            "report": report.as_dict(),
+            "store": app.state.store.store_info(),
+        }
         return render_template(request, "replay.html", context)
 
     @app.get("/compare", response_class=HTMLResponse)
@@ -94,6 +104,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             "saved": app.state.store.list_comparisons(20),
             "selected_a": run_a,
             "selected_b": run_b,
+            "store": app.state.store.store_info(),
         }
         return render_template(request, "compare.html", context)
 
@@ -105,6 +116,10 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         if q:
             return app.state.store.search_runs(q, limit)
         return app.state.store.list_runs(limit)
+
+    @app.get("/api/store")
+    def api_store() -> dict[str, Any]:
+        return app.state.store.store_info()
 
     @app.get("/api/runs/{run_id}")
     def api_run(
@@ -271,6 +286,16 @@ def _stats(runs: list[dict[str, Any]]) -> dict[str, int]:
         "failures": sum(run["status"] == "error" for run in runs),
         "tools": sum(run.get("tool_count", 0) for run in runs),
     }
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        raise ValueError(f"{name} must be an integer") from None
 
 
 def _span_filter_set(

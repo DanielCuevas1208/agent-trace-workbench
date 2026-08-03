@@ -89,6 +89,7 @@ select { min-height: 44px; padding: 0 12px; font-family: inherit; }
 .empty-state p { margin-bottom: 18px; color: var(--muted); font-size: 13px; }
 .empty-state code { color: var(--blue); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .footer { display: flex; justify-content: space-between; padding: 21px 0 29px; border-top: 1px solid var(--line); color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .05em; text-transform: uppercase; }
+.store-status { color: var(--blue); }
 .breadcrumb { display: flex; gap: 10px; padding-top: 36px; color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .detail-hero { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding: 54px 0 45px; }
 .detail-hero h1 { margin-top: 13px; margin-bottom: 12px; font-size: clamp(42px, 5vw, 64px); }

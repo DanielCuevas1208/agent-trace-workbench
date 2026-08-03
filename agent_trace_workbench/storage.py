@@ -1,15 +1,27 @@
-"""SQLite persistence for portable trace documents."""
+"""SQLite persistence for portable trace documents.
+
+The store coordinates local readers and writers on one database file.
+It enables the WAL journal so readers keep a committed snapshot while a
+writer is active. It sets a busy timeout so writers wait for the write
+lock instead of failing on first contact.
+"""
 
 from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 from uuid import uuid4
 
 from .models import TraceDocument
 from .telemetry import traced_operation
+
+_T = TypeVar("_T")
+
+_SYNCHRONOUS_LABELS = {0: "off", 1: "normal", 2: "full", 3: "extra"}
+_LOCK_ERROR_HINT = "database is locked"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -64,15 +76,26 @@ CREATE TABLE IF NOT EXISTS comparisons (
 class TraceStore:
     """Persist and query traces with one short-lived SQLite connection per operation."""
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        busy_timeout_ms: int = 5000,
+    ) -> None:
+        if busy_timeout_ms < 0:
+            raise ValueError("busy_timeout_ms must not be negative")
         self.db_path = Path(db_path)
+        self.busy_timeout_ms = busy_timeout_ms
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path)
+        connection = sqlite3.connect(self.db_path, timeout=self.busy_timeout_ms / 1000)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute(f"PRAGMA busy_timeout = {int(self.busy_timeout_ms)}")
+        connection.execute("PRAGMA synchronous = NORMAL")
         return connection
 
     def initialize(self) -> None:
@@ -82,76 +105,96 @@ class TraceStore:
             with self._connect() as connection:
                 connection.executescript(SCHEMA)
 
+    def store_info(self) -> dict[str, Any]:
+        """Return the concurrency settings of the local database."""
+
+        with traced_operation("storage.store_info", {"db.path": self.db_path.name}):
+            with self._connect() as connection:
+                journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+                busy_timeout = connection.execute("PRAGMA busy_timeout").fetchone()[0]
+                synchronous = connection.execute("PRAGMA synchronous").fetchone()[0]
+                sqlite_version = connection.execute("SELECT sqlite_version()").fetchone()[0]
+            return {
+                "db_path": str(self.db_path),
+                "journal_mode": journal_mode,
+                "busy_timeout_ms": busy_timeout,
+                "synchronous": _SYNCHRONOUS_LABELS.get(synchronous, str(synchronous)),
+                "sqlite_version": sqlite_version,
+            }
+
     def ingest(self, trace: TraceDocument, source_name: str = "local.json") -> dict[str, Any]:
         """Insert or replace one trace and its spans."""
 
         with traced_operation("storage.ingest", {"run.id": trace.run_id}):
-            raw_json = json.dumps(trace.as_jsonable(), sort_keys=True, separators=(",", ":"))
-            with self._connect() as connection:
+            _retry_on_lock(lambda: self._write_trace(trace, source_name))
+            return self.get_run(trace.run_id) or {}
+
+    def _write_trace(self, trace: TraceDocument, source_name: str) -> None:
+        raw_json = json.dumps(trace.as_jsonable(), sort_keys=True, separators=(",", ":"))
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO runs (
+                    run_id, trace_id, agent_name, agent_version, status, started_at,
+                    ended_at, duration_ms, source_name, metadata_json, raw_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(run_id) DO UPDATE SET
+                    trace_id=excluded.trace_id,
+                    agent_name=excluded.agent_name,
+                    agent_version=excluded.agent_version,
+                    status=excluded.status,
+                    started_at=excluded.started_at,
+                    ended_at=excluded.ended_at,
+                    duration_ms=excluded.duration_ms,
+                    source_name=excluded.source_name,
+                    metadata_json=excluded.metadata_json,
+                    raw_json=excluded.raw_json,
+                    ingested_at=CURRENT_TIMESTAMP
+                """,
+                (
+                    trace.run_id,
+                    trace.trace_id,
+                    trace.agent_name,
+                    trace.agent_version,
+                    trace.status,
+                    trace.started_at.isoformat(),
+                    trace.ended_at.isoformat(),
+                    trace.duration_ms,
+                    source_name,
+                    _json(trace.metadata),
+                    raw_json,
+                ),
+            )
+            connection.execute("DELETE FROM spans WHERE run_id = ?", (trace.run_id,))
+            for span in trace.ordered_spans():
+                tool = span.tool_call
                 connection.execute(
                     """
-                    INSERT INTO runs (
-                        run_id, trace_id, agent_name, agent_version, status, started_at,
-                        ended_at, duration_ms, source_name, metadata_json, raw_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(run_id) DO UPDATE SET
-                        trace_id=excluded.trace_id,
-                        agent_name=excluded.agent_name,
-                        agent_version=excluded.agent_version,
-                        status=excluded.status,
-                        started_at=excluded.started_at,
-                        ended_at=excluded.ended_at,
-                        duration_ms=excluded.duration_ms,
-                        source_name=excluded.source_name,
-                        metadata_json=excluded.metadata_json,
-                        raw_json=excluded.raw_json,
-                        ingested_at=CURRENT_TIMESTAMP
+                    INSERT INTO spans (
+                        run_id, span_id, parent_span_id, name, kind, status, start_time,
+                        end_time, duration_ms, sequence_index, attributes_json, tool_name,
+                        arguments_json, result_json, outcome, error
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         trace.run_id,
-                        trace.trace_id,
-                        trace.agent_name,
-                        trace.agent_version,
-                        trace.status,
-                        trace.started_at.isoformat(),
-                        trace.ended_at.isoformat(),
-                        trace.duration_ms,
-                        source_name,
-                        _json(trace.metadata),
-                        raw_json,
+                        span.span_id,
+                        span.parent_span_id,
+                        span.name,
+                        span.kind,
+                        span.status,
+                        span.start_time.isoformat(),
+                        span.end_time.isoformat(),
+                        span.duration_ms,
+                        span.sequence,
+                        _json(span.attributes),
+                        tool.name if tool else None,
+                        _json(tool.arguments) if tool else None,
+                        _json(tool.result) if tool else None,
+                        tool.outcome if tool else None,
+                        tool.error if tool else None,
                     ),
                 )
-                connection.execute("DELETE FROM spans WHERE run_id = ?", (trace.run_id,))
-                for span in trace.ordered_spans():
-                    tool = span.tool_call
-                    connection.execute(
-                        """
-                        INSERT INTO spans (
-                            run_id, span_id, parent_span_id, name, kind, status, start_time,
-                            end_time, duration_ms, sequence_index, attributes_json, tool_name,
-                            arguments_json, result_json, outcome, error
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            trace.run_id,
-                            span.span_id,
-                            span.parent_span_id,
-                            span.name,
-                            span.kind,
-                            span.status,
-                            span.start_time.isoformat(),
-                            span.end_time.isoformat(),
-                            span.duration_ms,
-                            span.sequence,
-                            _json(span.attributes),
-                            tool.name if tool else None,
-                            _json(tool.arguments) if tool else None,
-                            _json(tool.result) if tool else None,
-                            tool.outcome if tool else None,
-                            tool.error if tool else None,
-                        ),
-                    )
-            return self.get_run(trace.run_id) or {}
 
     def list_runs(self, limit: int = 20) -> list[dict[str, Any]]:
         """Return recent run summaries."""
@@ -264,14 +307,17 @@ class TraceStore:
 
         comparison_id = uuid4().hex[:12]
         with traced_operation("storage.save_comparison", {"run.a": run_a, "run.b": run_b}):
-            with self._connect() as connection:
-                connection.execute(
-                    """
-                    INSERT INTO comparisons (comparison_id, label, run_a, run_b, report_json)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (comparison_id, label, run_a, run_b, _json(report)),
-                )
+            def _write() -> None:
+                with self._connect() as connection:
+                    connection.execute(
+                        """
+                        INSERT INTO comparisons (comparison_id, label, run_a, run_b, report_json)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (comparison_id, label, run_a, run_b, _json(report)),
+                    )
+
+            _retry_on_lock(_write)
             return self.get_comparison(comparison_id)
 
     def list_comparisons(self, limit: int = 20) -> list[dict[str, Any]]:
@@ -305,12 +351,37 @@ class TraceStore:
         """Remove one saved comparison and report whether it existed."""
 
         with traced_operation("storage.delete_comparison", {"comparison.id": comparison_id}):
-            with self._connect() as connection:
-                cursor = connection.execute(
-                    "DELETE FROM comparisons WHERE comparison_id = ?",
-                    (comparison_id,),
-                )
-            return cursor.rowcount > 0
+            def _delete() -> bool:
+                with self._connect() as connection:
+                    cursor = connection.execute(
+                        "DELETE FROM comparisons WHERE comparison_id = ?",
+                        (comparison_id,),
+                    )
+                return cursor.rowcount > 0
+
+            return _retry_on_lock(_delete)
+
+
+def _retry_on_lock(operation: Callable[[], _T], *, attempts: int = 3) -> _T:
+    """Run a write operation, retrying when the database reports a lock.
+
+    A transient "database is locked" error is safe to retry because the
+    operation starts its own transaction on a fresh connection. Other
+    errors pass through unchanged.
+    """
+
+    last_error: sqlite3.OperationalError | None = None
+    for attempt in range(attempts):
+        try:
+            return operation()
+        except sqlite3.OperationalError as error:
+            last_error = error
+            if _LOCK_ERROR_HINT not in str(error):
+                raise
+            if attempt < attempts - 1:
+                time.sleep(0.05)
+    assert last_error is not None
+    raise last_error
 
 
 def _json(value: Any) -> str:
