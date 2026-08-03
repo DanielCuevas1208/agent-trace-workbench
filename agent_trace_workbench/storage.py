@@ -6,6 +6,7 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from .models import TraceDocument
 from .telemetry import traced_operation
@@ -48,6 +49,15 @@ CREATE TABLE IF NOT EXISTS spans (
 
 CREATE INDEX IF NOT EXISTS idx_spans_run_sequence ON spans(run_id, sequence_index, start_time);
 CREATE INDEX IF NOT EXISTS idx_runs_started_at ON runs(started_at DESC);
+
+CREATE TABLE IF NOT EXISTS comparisons (
+    comparison_id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    run_a TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    run_b TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    report_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -153,17 +163,55 @@ class TraceStore:
                     "SELECT * FROM runs ORDER BY started_at DESC, run_id DESC LIMIT ?",
                     (safe_limit,),
                 ).fetchall()
-                summaries = [_run_row(row) for row in rows]
-                for summary in summaries:
-                    tool_row = connection.execute(
-                        "SELECT COUNT(*) AS count FROM spans WHERE run_id = ? AND kind = 'tool'",
-                        (summary["run_id"],),
-                    ).fetchone()
-                    summary["tool_count"] = tool_row["count"]
-            return summaries
+                return _summarize_runs(connection, rows)
 
-    def get_run(self, run_id: str) -> dict[str, Any] | None:
-        """Return one run with its spans."""
+    def list_run_ids(self) -> list[str]:
+        """Return every stored run ID in deterministic order."""
+
+        with traced_operation("storage.list_run_ids", {"db.path": self.db_path.name}):
+            with self._connect() as connection:
+                rows = connection.execute(
+                    "SELECT run_id FROM runs ORDER BY started_at DESC, run_id DESC"
+                ).fetchall()
+                return [row["run_id"] for row in rows]
+
+    def search_runs(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Return run summaries matching a text query across runs and spans."""
+
+        safe_limit = max(1, min(limit, 100))
+        term = query.strip()
+        if not term:
+            return []
+        pattern = f"%{_escape_like(term)}%"
+        with traced_operation("storage.search_runs", {"run.query": term}):
+            with self._connect() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT DISTINCT r.*
+                    FROM runs r
+                    LEFT JOIN spans s ON s.run_id = r.run_id
+                    WHERE r.run_id LIKE ? ESCAPE '!'
+                       OR r.trace_id LIKE ? ESCAPE '!'
+                       OR r.agent_name LIKE ? ESCAPE '!'
+                       OR r.source_name LIKE ? ESCAPE '!'
+                       OR s.name LIKE ? ESCAPE '!'
+                       OR s.tool_name LIKE ? ESCAPE '!'
+                    ORDER BY r.started_at DESC, r.run_id DESC
+                    LIMIT ?
+                    """,
+                    (pattern, pattern, pattern, pattern, pattern, pattern, safe_limit),
+                ).fetchall()
+                return _summarize_runs(connection, rows)
+
+    def get_run(
+        self,
+        run_id: str,
+        *,
+        span_kind: str | None = None,
+        span_status: str | None = None,
+        span_tool: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Return one run with optional span filtering."""
 
         with traced_operation("storage.get_run", {"run.id": run_id}):
             with self._connect() as connection:
@@ -172,17 +220,28 @@ class TraceStore:
                 ).fetchone()
                 if run is None:
                     return None
-                spans = connection.execute(
-                    """
-                    SELECT * FROM spans
-                    WHERE run_id = ?
-                    ORDER BY sequence_index IS NULL, sequence_index, start_time, span_id
-                    """,
+                tool_count = connection.execute(
+                    "SELECT COUNT(*) AS count FROM spans WHERE run_id = ? AND kind = 'tool'",
                     (run_id,),
-                ).fetchall()
+                ).fetchone()["count"]
+                query = "SELECT * FROM spans WHERE run_id = ?"
+                params: list[Any] = [run_id]
+                if span_kind:
+                    query += " AND kind = ?"
+                    params.append(span_kind)
+                if span_status:
+                    query += " AND status = ?"
+                    params.append(span_status)
+                if span_tool:
+                    query += " AND tool_name = ?"
+                    params.append(span_tool)
+                query += (
+                    " ORDER BY sequence_index IS NULL, sequence_index, start_time, span_id"
+                )
+                spans = connection.execute(query, params).fetchall()
             result = _run_row(run)
             result["spans"] = [_span_row(row) for row in spans]
-            result["tool_count"] = sum(span["kind"] == "tool" for span in result["spans"])
+            result["tool_count"] = tool_count
             return result
 
     def get_trace(self, run_id: str) -> TraceDocument | None:
@@ -194,9 +253,86 @@ class TraceStore:
             ).fetchone()
         return TraceDocument.model_validate_json(row["raw_json"]) if row else None
 
+    def save_comparison(
+        self,
+        run_a: str,
+        run_b: str,
+        label: str,
+        report: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Store a comparison report and return the saved record."""
+
+        comparison_id = uuid4().hex[:12]
+        with traced_operation("storage.save_comparison", {"run.a": run_a, "run.b": run_b}):
+            with self._connect() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO comparisons (comparison_id, label, run_a, run_b, report_json)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (comparison_id, label, run_a, run_b, _json(report)),
+                )
+            return self.get_comparison(comparison_id)
+
+    def list_comparisons(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Return recent saved comparison summaries."""
+
+        safe_limit = max(1, min(limit, 100))
+        with traced_operation("storage.list_comparisons", {"comparison.limit": safe_limit}):
+            with self._connect() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM comparisons
+                    ORDER BY created_at DESC, comparison_id DESC
+                    LIMIT ?
+                    """,
+                    (safe_limit,),
+                ).fetchall()
+                return [_comparison_row(row) for row in rows]
+
+    def get_comparison(self, comparison_id: str) -> dict[str, Any] | None:
+        """Return one saved comparison with its report."""
+
+        with traced_operation("storage.get_comparison", {"comparison.id": comparison_id}):
+            with self._connect() as connection:
+                row = connection.execute(
+                    "SELECT * FROM comparisons WHERE comparison_id = ?",
+                    (comparison_id,),
+                ).fetchone()
+            return _comparison_row(row) if row else None
+
+    def delete_comparison(self, comparison_id: str) -> bool:
+        """Remove one saved comparison and report whether it existed."""
+
+        with traced_operation("storage.delete_comparison", {"comparison.id": comparison_id}):
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    "DELETE FROM comparisons WHERE comparison_id = ?",
+                    (comparison_id,),
+                )
+            return cursor.rowcount > 0
+
 
 def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+
+
+def _summarize_runs(
+    connection: sqlite3.Connection,
+    rows: list[sqlite3.Row],
+) -> list[dict[str, Any]]:
+    summaries = [_run_row(row) for row in rows]
+    for summary in summaries:
+        tool_row = connection.execute(
+            "SELECT COUNT(*) AS count FROM spans WHERE run_id = ? AND kind = 'tool'",
+            (summary["run_id"],),
+        ).fetchone()
+        summary["tool_count"] = tool_row["count"]
+    return summaries
 
 
 def _run_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -236,6 +372,17 @@ def _span_row(row: sqlite3.Row) -> dict[str, Any]:
         }
         if row["tool_name"]
         else None,
+    }
+
+
+def _comparison_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "comparison_id": row["comparison_id"],
+        "label": row["label"],
+        "run_a": row["run_a"],
+        "run_b": row["run_b"],
+        "created_at": row["created_at"],
+        "report": json.loads(row["report_json"]),
     }
 
 

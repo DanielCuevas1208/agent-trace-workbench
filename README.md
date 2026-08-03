@@ -4,7 +4,7 @@ Agent Trace Workbench keeps agent-run evidence on your machine.
 
 It records local JSON traces in SQLite. It replays tool calls with deterministic handlers. It compares runs by call order, timing, results, and outcomes.
 
-Release 0.3 adds configurable replay handlers and side-effect guards.
+Release 0.5 adds OTLP import and local export files.
 
 ## Value
 
@@ -18,26 +18,32 @@ No hosted service is required. The SQLite database stays in the local `data` dir
 
 The watcher supports a common handoff. An agent writes a JSON file. The workbench finds the file and records the run.
 
+Import the OpenTelemetry JSON format to bring agent traces in. Export runs to portable JSON files to share or back them up.
+
 ## Architecture
 
 ```text
-local JSON trace
-       |
-       v
-Pydantic contract ---> SQLite trace store ---> FastAPI views and JSON API
-       ^                      |
-       |                      +---------+---------+
-directory watcher             v                   v
-                        replay engine       comparison engine
-                            |
-                            v
-                  handler config + guard
+  local JSON trace         OTLP JSON file
+        |                        |
+        v                        v
+ Pydantic contract <------> SQLite trace store ---> FastAPI views and JSON API
+        ^                        |
+        |                        +---------+---------+
+ directory watcher               v                   v
+                          replay engine       comparison engine
+                              |                   |  ^
+                              v                   v  |
+                    handler config + guard    saved comparisons
+                                                      |
+                                                      v
+                                                local export files
 ```
 
 - `models.py` defines the portable trace contract.
 - `handlers.py` loads local handler config and applies side-effect guards.
 - `storage.py` owns the SQLite schema and idempotent ingestion.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
+- `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
 - `compare.py` aligns tool calls by recorded position.
 - `main.py` serves the interface and the JSON API.
@@ -132,6 +138,200 @@ This example shows two valid files and one invalid file.
 ```
 
 Run the watcher continuously by omitting `--once`. It checks for changed files every two seconds.
+
+## Search
+
+Search the trace library by run ID, agent, span, or tool.
+
+```powershell
+python -m agent_trace_workbench.cli search catalog-assistant
+```
+
+The command prints matching run summaries.
+
+```json
+[
+  {
+    "run_id": "run-baseline-001",
+    "agent_name": "catalog-assistant",
+    "status": "ok",
+    "tool_count": 2
+  },
+  {
+    "run_id": "run-candidate-001",
+    "agent_name": "catalog-assistant",
+    "status": "error",
+    "tool_count": 3
+  }
+]
+```
+
+Use the search box on the dashboard. The results replace the recent run list.
+
+The JSON API accepts the same search.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/runs?q=get_inventory"
+```
+
+Search matches partial text. It escapes `%`, `_`, and `!` in your query.
+
+## Span filtering
+
+Filter spans on a run page by kind, status, or tool.
+
+The JSON API accepts the same filters.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/runs/run-candidate-001?kind=tool&status=error"
+```
+
+The response keeps only matching spans. The run metrics still show full totals.
+
+Use the drop-downs on a run page. Clear the filters to see every span.
+
+## Saved comparisons
+
+Save a comparison for later review.
+
+```powershell
+python -m agent_trace_workbench.cli comparisons
+```
+
+List saved comparisons with the CLI.
+
+```powershell
+python -m agent_trace_workbench.cli comparisons --limit 10
+```
+
+Delete a saved comparison.
+
+```powershell
+python -m agent_trace_workbench.cli comparisons --delete <comparison-id>
+```
+
+The compare page saves a comparison with a label. Use the JSON API for scripts.
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/api/comparisons `
+  -H "content-type: application/json" `
+  -d "{\"run_a\": \"run-baseline-001\", \"run_b\": \"run-candidate-001\", \"label\": \"v1 vs v2\"}"
+```
+
+The saved record keeps the comparison report.
+
+```json
+{
+  "comparison_id": "4f9c2a1e8b6d",
+  "label": "v1 vs v2",
+  "run_a": "run-baseline-001",
+  "run_b": "run-candidate-001",
+  "report": {
+    "changed_tools": 2,
+    "total_duration_delta_ms": 60.0
+  }
+}
+```
+
+List, get, and delete use these API routes.
+
+- `GET /api/comparisons` lists saved comparisons.
+- `GET /api/comparisons/{id}` returns one saved comparison.
+- `DELETE /api/comparisons/{id}` removes one saved comparison.
+
+## OTLP import
+
+Import the OpenTelemetry JSON encoding. The format matches an `ExportTraceServiceRequest` file.
+
+```powershell
+python -m agent_trace_workbench.cli import-otlp traces.otlp.json
+```
+
+The command converts each resource span group into one run and stores it.
+
+```json
+{
+  "source": "traces.otlp.json",
+  "imported_runs": 2,
+  "runs": [
+    {
+      "run_id": "catalog-assistant-5b8efff79803",
+      "status": "ok",
+      "tool_count": 2
+    },
+    {
+      "run_id": "catalog-assistant-aa7c91dfb18a",
+      "status": "error",
+      "tool_count": 3
+    }
+  ]
+}
+```
+
+The mapping rules are stable.
+
+- `service.name` becomes `agent_name`.
+- `service.version` becomes `agent_version`.
+- The first span `traceId` becomes `trace_id`.
+- `run_id` derives from the service slug and the first 12 trace ID characters.
+- Span status maps from the OTLP status code.
+- Typed attribute values convert to plain JSON values.
+- Spans become internal spans unless they carry workbench kind data.
+
+The JSON API accepts the same payload.
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/api/otlp/traces `
+  -H "content-type: application/json" `
+  --data-binary "@traces.otlp.json"
+```
+
+The response lists each stored run. The workbench reads the OTLP JSON encoding only. It does not read protobuf binary files.
+
+## Export files
+
+Export a run to a portable JSON file.
+
+```powershell
+python -m agent_trace_workbench.cli export run-baseline-001
+```
+
+The command writes `data/exports/run-baseline-001.json`. The file follows the trace contract and re-ingests on any workbench.
+
+```json
+{
+  "exported": [
+    {
+      "run_id": "run-baseline-001",
+      "format": "json",
+      "path": "data/exports/run-baseline-001.json"
+    }
+  ]
+}
+```
+
+Export every run by omitting the run ID.
+
+```powershell
+python -m agent_trace_workbench.cli export --output data/backups
+```
+
+Choose a directory with `--output`. For one run, `--output` may name a file. Choose a format with `--format otlp`.
+
+```powershell
+python -m agent_trace_workbench.cli export run-candidate-001 --format otlp
+```
+
+The OTLP file imports back through `import-otlp`. The round trip keeps arguments, results, outcomes, and errors.
+
+Export one run from the API.
+
+```powershell
+curl.exe -o run.json http://127.0.0.1:8000/api/runs/run-baseline-001/export
+curl.exe -o run.otlp.json http://127.0.0.1:8000/api/runs/run-baseline-001/export?format=otlp
+```
+
+The run page offers the same downloads.
 
 ## Replay handlers
 
@@ -247,7 +447,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers schema validation, idempotent storage, directory ingestion, handler config, side-effect guards, deterministic replay, comparison, CLI routes, and API routes.
+The test suite covers schema validation, idempotent storage, directory ingestion, handler config, side-effect guards, replay, comparison, search, filtering, saved comparisons, OTLP conversion, export files, CLI, and API routes.
 
 Run the checks with these commands.
 
@@ -257,7 +457,7 @@ ruff check .
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 29 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 80 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -266,6 +466,16 @@ Replay does not call external tools. Unknown tools use their recorded results.
 The guard trusts the declared side-effect level. It does not inspect the handler code.
 
 Comparison aligns tool calls by recorded position. It does not infer semantic call identity.
+
+Search uses SQL `LIKE` matching. It does not rank results by relevance.
+
+OTLP import reads the JSON encoding only. It does not read protobuf binary files.
+
+OTLP spans become internal spans unless they carry workbench kind attributes.
+
+The exporter stores workbench fields as `workbench.*` attributes.
+
+`run_id` derives from the service name and trace ID. It may differ from the producer's run label.
 
 SQLite is suitable for a local workbench. This release does not coordinate multiple writers.
 
@@ -279,16 +489,17 @@ OpenTelemetry spans cover workbench operations. The release does not export agen
 
 ## Roadmap
 
-- Release 0.3 complete: add configurable replay handlers and side-effect guards.
-- Release 0.4: add span filtering, search, and saved comparisons.
-- Release 0.5: add OTLP import and local export files.
+- Release 0.4 complete: add search, span filtering, and saved comparisons.
+- Release 0.5 complete: add OTLP import and local export files.
 - Release 0.6: add coordination for shared databases.
+- Release 0.7: add richer comparison views and CSV export.
+- Release 0.8: export workbench spans to a local OpenTelemetry collector.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline and candidate traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic core, guard, CLI, and API tests.
+`tests/` contains deterministic core, guard, search, filtering, comparison, OTLP, export, CLI, and API tests.
 
 `static/` and `templates/` contain the presentation layer.
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-trace-workbench"
-version = "0.3.0"
+version = "0.5.0"
 description = "A local workbench for recording, replaying, comparing, and inspecting agent traces."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,6 +19,10 @@ dependencies = [
 
 [project.scripts]
 atw = "agent_trace_workbench.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/DanielCuevas1208/agent-trace-workbench"
+Repository = "https://github.com/DanielCuevas1208/agent-trace-workbench"
 
 [tool.setuptools.packages.find]
 include = ["agent_trace_workbench*"]

@@ -64,3 +64,32 @@ def test_cli_replay_policy_flag_overrides_config(tmp_path, candidate, monkeypatc
     assert report["policy"] == "local"
     assert report["guarded_steps"] == 0
     assert report["steps"][-1]["mode"] == "handler"
+
+
+def test_cli_search_finds_runs_by_tool(tmp_path, baseline, candidate, monkeypatch, capsys):
+    store = TraceStore(tmp_path / "cli.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["atw", "--db", str(tmp_path / "cli.db"), "search", "get_inventory"],
+    )
+    main()
+    results = json.loads(capsys.readouterr().out)
+
+    assert {run["run_id"] for run in results} == {
+        "run-baseline-001",
+        "run-candidate-001",
+    }
+
+
+def test_cli_search_returns_no_results_for_gibberish(tmp_path, baseline, monkeypatch, capsys):
+    store = TraceStore(tmp_path / "cli.db")
+    store.ingest(baseline, "baseline.json")
+
+    monkeypatch.setattr("sys.argv", ["atw", "--db", str(tmp_path / "cli.db"), "search", "zzz"])
+    main()
+    results = json.loads(capsys.readouterr().out)
+
+    assert results == []

@@ -4,6 +4,46 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 0.5.0 - 2026-08-03
+
+### Added
+
+- OTLP JSON import through the CLI and the `/api/otlp/traces` route.
+- OTLP JSON export through the CLI and the `/api/runs/{run_id}/export` route.
+- Portable JSON export files for one run or every run.
+- Export links on the run detail page.
+- `atw import-otlp` and `atw export` commands on the CLI.
+- A lossless round trip between workbench runs and the OTLP JSON encoding.
+- Typed OTLP attribute conversion with arrays, maps, and numeric values.
+- Deterministic tests for OTLP conversion, import, export, and the API routes.
+
+### Changed
+
+- Version numbers moved to 0.5.0.
+- The run detail page exposes JSON and OTLP downloads.
+- The architecture now includes the OTLP import and export layer.
+
+## 0.4.0 - 2026-08-03
+
+### Added
+
+- Text search across runs, spans, and tool calls.
+- Span filtering by kind, status, and tool on the run page.
+- Saved comparisons with create, list, get, and delete routes.
+- Search box on the dashboard.
+- Filter controls on the run detail page.
+- Saved comparison list on the compare page.
+- `atw search` command on the CLI.
+- `atw comparisons` command on the CLI.
+- Deterministic tests for search, filtering, and saved comparisons.
+
+### Changed
+
+- Version numbers moved to 0.4.0.
+- `GET /api/runs` accepts a `q` query parameter.
+- `GET /api/runs/{run_id}` accepts `kind`, `status`, and `tool` query parameters.
+- The dashboard keeps its search query in the URL.
+
 ## 0.3.0 - 2026-08-03
 
 ### Added

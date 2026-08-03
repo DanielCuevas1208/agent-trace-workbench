@@ -20,8 +20,27 @@
     <div class="section-heading"><div><div class="eyebrow">TOOL CALL DELTA</div><h2>Position-by-position</h2></div><span class="section-meta">A baseline · B candidate</span></div>
     <div class="table-wrap"><table><thead><tr><th>#</th><th>Tool A</th><th>Tool B</th><th>State</th><th>Arguments</th><th>Result</th><th>Timing</th></tr></thead><tbody>{% for diff in report.tool_diffs %}<tr class="row-{{ diff.state }}"><td class="table-index">{{ '%02d'|format(diff.index) }}</td><td class="mono">{{ diff.tool_a or '—' }}</td><td class="mono">{{ diff.tool_b or '—' }}</td><td><span class="badge badge-{{ 'ok' if diff.state == 'same' else 'error' }}">{{ diff.state }}</span></td><td>{{ 'changed' if diff.arguments_changed else 'same' }}</td><td>{{ 'changed' if diff.result_changed else 'same' }}</td><td>{% if diff.duration_delta_ms is not none %}{% if diff.duration_delta_ms > 0 %}+{% endif %}{{ diff.duration_delta_ms|round(1) }} ms{% else %}—{% endif %}</td></tr>{% endfor %}</tbody></table></div>
     {% if report.run_a.status == 'error' or report.run_b.status == 'error' %}<div class="failure-box compare-failure"><strong>Failure signal</strong><span>At least one compared run contains an error outcome. Open the run to inspect the recorded error.</span></div>{% endif %}
+    <form id="save-comparison" class="save-comparison">
+        <label for="comparison-label">Comparison label</label>
+        <input type="hidden" name="run_a" value="{{ selected_a }}">
+        <input type="hidden" name="run_b" value="{{ selected_b }}">
+        <div class="form-row">
+            <input id="comparison-label" name="label" maxlength="120" required placeholder="e.g. reservation flow, v1 vs v2">
+            <button class="button button-primary" type="submit">Save comparison <span aria-hidden="true">&#8594;</span></button>
+            <span id="comparison-status" class="form-status" role="status"></span>
+        </div>
+    </form>
 </section>
 {% else %}
 <div class="empty-state compare-empty"><span class="empty-mark">A / B</span><h3>Choose two runs</h3><p>The workbench compares calls by recorded order. Start with the bundled baseline and candidate fixtures.</p></div>
 {% endif %}
+
+<section class="section-block saved-section">
+    <div class="section-heading"><div><div class="eyebrow">SAVED COMPARISONS</div><h2>Revisit a comparison</h2></div><span class="section-meta">{{ saved|length }} saved</span></div>
+    {% if saved %}
+    <div class="table-wrap"><table><thead><tr><th>Label</th><th>Baseline</th><th>Candidate</th><th>Changed</th><th>Saved</th><th>Actions</th></tr></thead><tbody>{% for item in saved %}<tr><td class="mono">{{ item.label }}</td><td class="mono">{{ item.run_a }}</td><td class="mono">{{ item.run_b }}</td><td>{{ item.report.changed_tools }}</td><td>{{ item.created_at }}</td><td class="table-actions"><a class="button button-quiet" href="/compare?run_a={{ item.run_a }}&run_b={{ item.run_b }}">Open</a><a class="button button-quiet" data-delete="{{ item.comparison_id }}" href="#saved">Delete</a></td></tr>{% endfor %}</tbody></table></div>
+    {% else %}
+    <div class="empty-state"><span class="empty-mark">S</span><h3>Nothing saved yet</h3><p>Run a comparison, then save it for a later review.</p></div>
+    {% endif %}
+</section>
 {% endblock %}

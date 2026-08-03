@@ -17,5 +17,6 @@ coverage.xml
 htmlcov/
 data/*.db
 data/*.db-*
+data/exports/
 .DS_Store
 Thumbs.db
