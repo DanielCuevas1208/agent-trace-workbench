@@ -2,12 +2,13 @@
 {% block title %}Runs | Agent Trace Workbench{% endblock %}
 {% block content %}
 <section class="hero">
-    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 0.9</div>
+    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 1.0</div>
     <h1>See what your agent did.<br><em>Replay why it did it.</em></h1>
-    <p class="hero-copy">Ingest local JSON traces, import OTLP exports, watch a folder, inspect every tool boundary, replay recorded work, compare runs, and label evidence for a later review without a hosted service.</p>
+    <p class="hero-copy">Ingest local JSON traces, import OTLP exports, watch a folder, inspect every tool boundary, replay recorded work, compare runs, label evidence for review, and read a folder-level library report without a hosted service.</p>
     <div class="hero-actions">
         <a class="button button-primary" href="#ingest">Ingest a trace <span aria-hidden="true">&#8594;</span></a>
         <a class="button button-quiet" href="/compare">Compare runs</a>
+        <a class="button button-quiet" href="/report">Library report</a>
     </div>
 </section>
 
@@ -40,7 +41,9 @@
         <div class="view-list">
             <a href="#recent-runs"><span class="view-number">A</span><span><strong>Inspect</strong><small>Timeline, attributes, and failures</small></span><span class="view-arrow">&#8599;</span></a>
             <a href="#recent-runs"><span class="view-number">B</span><span><strong>Replay</strong><small>Stable handlers or recorded fallback</small></span><span class="view-arrow">&#8599;</span></a>
-            <a href="/compare"><span class="view-number">C</span><span><strong>Compare</strong><small>Calls, timing, results, and outcomes</small></span><span class="view-arrow">&#8599;</span></a>
+            <a href="#recent-runs"><span class="view-number">C</span><span><strong>Compare</strong><small>Calls, timing, results, and outcomes</small></span><span class="view-arrow">&#8599;</span></a>
+            <a href="/review"><span class="view-number">D</span><span><strong>Review</strong><small>Triage runs that still need a label</small></span><span class="view-arrow">&#8599;</span></a>
+            <a href="/report"><span class="view-number">E</span><span><strong>Report</strong><small>Folder-level summary of the library</small></span><span class="view-arrow">&#8599;</span></a>
         </div>
         <div class="architecture-line"><span class="dot"></span>FastAPI <span class="line"></span> SQLite <span class="line"></span> OpenTelemetry <span class="line"></span> Local collector</div>
     </div>

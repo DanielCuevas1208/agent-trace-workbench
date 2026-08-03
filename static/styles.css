@@ -149,6 +149,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .table-index { color: var(--teal); font: 700 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .mono { font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .row-changed td { background: rgba(217,95,79,.035); }
+.row-alert { color: var(--coral); font-weight: 700; }
+.review-section { padding-top: 48px; }
+.report-section { padding-top: 56px; }
+.report-section-last { padding-bottom: 88px; }
 .compare-failure { margin-top: 18px; }
 .section-tools { display: flex; align-items: center; gap: 14px; }
 .section-tools .button { min-height: 36px; padding: 0 11px; font-size: 10px; }

@@ -4,6 +4,28 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.0.0 - 2026-08-03
+
+### Added
+
+- A review list that shows runs without a review label.
+- A library report that summarizes evidence by agent and source folder.
+- `atw review` command that lists runs that still need a label.
+- `atw report` command that prints the folder-level library summary.
+- `GET /api/review` route that returns unlabeled runs.
+- `GET /api/report` route that returns the library summary report.
+- A Review page and a Report page in the interface.
+- A source directory column on each run record, filled by the watcher and the ingest commands.
+- Automatic migration that adds the source directory column to databases created before release 1.0.
+- Deterministic tests for the review list, the report, the migration, the CLI commands, and the API routes.
+
+### Changed
+
+- Version numbers moved to 1.0.0.
+- The navigation and the dashboard now link to the review list and the library report.
+- Run summaries now include the local source directory.
+- Dependabot updates requirements pins in place with a bump-versions strategy.
+
 ## 0.9.0 - 2026-08-03
 
 ### Added

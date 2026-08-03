@@ -134,7 +134,7 @@ class DirectoryWatcher:
                     current_issues[path] = issue
                     continue
 
-                run = self.store.ingest(trace, path.name)
+                run = self.store.ingest(trace, path.name, source_dir=str(self.directory))
                 ingested_runs.append(
                     {
                         "run_id": run["run_id"],

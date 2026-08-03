@@ -98,6 +98,15 @@ def build_parser() -> argparse.ArgumentParser:
     comparisons.add_argument("--limit", type=int, default=20)
     comparisons.add_argument("--delete", default=None, help="Comparison ID to delete")
 
+    review = subparsers.add_parser(
+        "review", help="List runs that still need a review label"
+    )
+    review.add_argument("--limit", type=int, default=20)
+
+    subparsers.add_parser(
+        "report", help="Print a folder-level summary of the local library"
+    )
+
     annotate = subparsers.add_parser(
         "annotate", help="Label a run and add local review notes"
     )
@@ -121,13 +130,28 @@ def main() -> None:
     store = TraceStore(args.db)
     if args.command == "ingest":
         trace = TraceDocument.model_validate_json(args.path.read_text(encoding="utf-8"))
-        print(json.dumps(store.ingest(trace, args.source or args.path.name), indent=2))
+        print(
+            json.dumps(
+                store.ingest(
+                    trace,
+                    args.source or args.path.name,
+                    source_dir=str(args.path.parent),
+                ),
+                indent=2,
+            )
+        )
     elif args.command == "import-otlp":
         documents = parse_otlp_json(args.path.read_text(encoding="utf-8"))
         if not documents:
             raise SystemExit("No traces found in the OTLP payload")
         runs = [
-            _run_summary(store.ingest(trace, args.source or args.path.name))
+            _run_summary(
+                store.ingest(
+                    trace,
+                    args.source or args.path.name,
+                    source_dir=str(args.path.parent),
+                )
+            )
             for trace in documents
         ]
         print(
@@ -210,6 +234,10 @@ def main() -> None:
             print(json.dumps({"deleted": args.delete}, indent=2))
         else:
             print(json.dumps(store.list_comparisons(args.limit), indent=2))
+    elif args.command == "review":
+        print(json.dumps(store.unreviewed_runs(args.limit), indent=2))
+    elif args.command == "report":
+        print(json.dumps(store.library_report(), indent=2))
     elif args.command == "annotate":
         if args.clear:
             label = ""
