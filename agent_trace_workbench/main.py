@@ -15,9 +15,15 @@ from fastapi.templating import Jinja2Templates
 
 from .collector import export_run_to_collector
 from .compare import compare_runs
-from .export import comparison_to_csv, run_tools_to_csv
+from .export import comparison_to_csv, report_to_csv, run_tools_to_csv
 from .handlers import ReplayPolicy, load_handler_config
-from .models import CollectorExportRequest, ComparisonCreate, RunAnnotations, TraceDocument
+from .models import (
+    BulkLabelRequest,
+    CollectorExportRequest,
+    ComparisonCreate,
+    RunAnnotations,
+    TraceDocument,
+)
 from .otlp import parse_otlp_json, trace_to_otlp_json
 from .replay import ReplayEngine, default_replay_engine
 from .storage import TraceStore
@@ -36,7 +42,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     configure_telemetry()
     database_path = db_path or os.getenv("ATW_DB_PATH", "data/workbench.db")
     busy_timeout_ms = _env_int("ATW_DB_BUSY_TIMEOUT_MS", 5000)
-    app = FastAPI(title="Agent Trace Workbench", version="1.0.0")
+    app = FastAPI(title="Agent Trace Workbench", version="1.1.0")
     app.state.store = TraceStore(database_path, busy_timeout_ms=busy_timeout_ms)
     app.state.replay_engine = _build_replay_engine()
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
@@ -164,9 +170,22 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     ) -> list[dict[str, Any]]:
         return app.state.store.unreviewed_runs(limit)
 
-    @app.get("/api/report")
-    def api_report() -> dict[str, Any]:
-        return app.state.store.library_report()
+    @app.post("/api/review/labels")
+    def api_bulk_label(payload: BulkLabelRequest) -> dict[str, Any]:
+        updated = app.state.store.bulk_set_labels(payload.run_ids, payload.label)
+        return {"label": payload.label, "run_ids": payload.run_ids, "updated": updated}
+
+    @app.get("/api/report", response_model=None)
+    def api_report(
+        export_format: str = Query(default="json", alias="format"),
+    ) -> Response | dict[str, Any]:
+        report = app.state.store.library_report()
+        if export_format == "csv":
+            filename = "library-report.csv"
+            return _download_response(report_to_csv(report), filename, "text/csv; charset=utf-8")
+        if export_format != "json":
+            raise HTTPException(status_code=400, detail="format must be 'json' or 'csv'")
+        return report
 
     @app.get("/api/store")
     def api_store() -> dict[str, Any]:

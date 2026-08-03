@@ -4,6 +4,30 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.1.0 - 2026-08-03
+
+### Added
+
+- CSV export for the library report through the CLI and the API.
+- `atw report --format csv` command that prints the report as one CSV document.
+- `GET /api/report?format=csv` route that returns the report as a CSV attachment.
+- A CSV download button on the library report page.
+- Bulk label actions on the review list.
+- `POST /api/review/labels` route that sets one label on several runs.
+- `atw review --label <label>` command that labels every unreviewed run.
+- `atw review --label <label> --run-id <id>` command that labels specific runs.
+- Checkboxes and an apply-to-selected form on the review page.
+- `requirements.lock` that pins the full resolved dependency tree.
+- Dependency checks that verify the lockfile stays sorted and complete.
+
+### Changed
+
+- Version numbers moved to 1.1.0.
+- The review list now triages several runs in one action.
+- The library report downloads as CSV beside its JSON view.
+- CI installs dependencies from the lockfile for reproducible builds.
+- The architecture now includes bulk labeling and report CSV export.
+
 ## 1.0.0 - 2026-08-03
 
 ### Added

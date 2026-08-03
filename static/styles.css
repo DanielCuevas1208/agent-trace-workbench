@@ -151,6 +151,11 @@ tbody tr:last-child td { border-bottom: 0; }
 .row-changed td { background: rgba(217,95,79,.035); }
 .row-alert { color: var(--coral); font-weight: 700; }
 .review-section { padding-top: 48px; }
+.bulk-label { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 15px; padding: 13px; border: 1px solid var(--line); background: #fff; }
+.bulk-label input[type="text"] { flex: 1; min-width: 200px; max-width: 280px; min-height: 40px; padding: 0 12px; border: 1px solid var(--line); background: #fbfcfa; color: var(--ink); font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; outline: 0; }
+.bulk-label input[type="text"]:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(44,111,159,.12); }
+.bulk-label .button { min-height: 40px; }
+input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--navy); cursor: pointer; }
 .report-section { padding-top: 56px; }
 .report-section-last { padding-bottom: 88px; }
 .compare-failure { margin-top: 18px; }

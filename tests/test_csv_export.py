@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from agent_trace_workbench.cli import main
 from agent_trace_workbench.compare import compare_runs
-from agent_trace_workbench.export import comparison_to_csv, run_tools_to_csv
+from agent_trace_workbench.export import comparison_to_csv, report_to_csv, run_tools_to_csv
 from agent_trace_workbench.main import create_app
 from agent_trace_workbench.storage import TraceStore
 
@@ -192,3 +192,39 @@ def test_cli_export_csv_writes_file(tmp_path, baseline, monkeypatch, capsys):
     assert report["exported"][0]["path"].endswith("run-baseline-001.csv")
     rows = _read_csv((tmp_path / "run-baseline-001.csv").read_text(encoding="utf-8"))
     assert [row["tool_name"] for row in rows] == ["search_catalog", "get_inventory"]
+
+
+def test_report_csv_has_total_source_and_agent_rows(tmp_path, baseline, candidate):
+    store = TraceStore(tmp_path / "api.db")
+    store.ingest(baseline, "baseline.json", source_dir="fixtures/baseline")
+    store.ingest(candidate, "candidate.json", source_dir="fixtures/candidate")
+    store.update_annotations("run-baseline-001", label="golden")
+
+    rows = _read_csv(report_to_csv(store.library_report()))
+
+    assert list(rows[0])[0] == "section"
+    total = [row for row in rows if row["section"] == "total"]
+    sources = [row for row in rows if row["section"] == "source"]
+    agents = [row for row in rows if row["section"] == "agent"]
+
+    assert len(total) == 1
+    assert total[0]["runs"] == "2"
+    assert total[0]["labeled_runs"] == "1"
+    assert total[0]["total_duration_ms"] != ""
+    assert [row["source_dir"] for row in sources] == [
+        "fixtures/baseline",
+        "fixtures/candidate",
+    ]
+    assert sources[0]["runs"] == "1"
+    assert agents[0]["agent_name"] == "catalog-assistant"
+    assert agents[0]["avg_duration_ms"] != ""
+    assert agents[0]["unlabeled_runs"] == "1"
+
+
+def test_report_csv_escapes_folder_names(tmp_path, baseline):
+    store = TraceStore(tmp_path / "api.db")
+    store.ingest(baseline, "baseline.json", source_dir='inbox, "quoted"')
+
+    rows = _read_csv(report_to_csv(store.library_report()))
+
+    assert rows[1]["source_dir"] == 'inbox, "quoted"'

@@ -1,4 +1,4 @@
-"""CSV rendering for run tool calls and comparison reports.
+"""CSV rendering for run tool calls, comparison reports, and library reports.
 
 The workbench uses the Python csv module so that every field is escaped
 correctly. Arguments and results keep their structured values as compact
@@ -47,6 +47,25 @@ _RUN_TOOLS_HEADERS = [
     "arguments",
     "result",
 ]
+
+_REPORT_HEADERS = [
+    "section",
+    "source_dir",
+    "agent_name",
+    "runs",
+    "ok_runs",
+    "failure_runs",
+    "labeled_runs",
+    "unlabeled_runs",
+    "tool_calls",
+    "agents",
+    "avg_duration_ms",
+    "total_duration_ms",
+]
+
+_SECTION_TOTAL = "total"
+_SECTION_SOURCE = "source"
+_SECTION_AGENT = "agent"
 
 
 def comparison_to_csv(report: CompareReport) -> str:
@@ -101,6 +120,71 @@ def run_tools_to_csv(run: dict[str, Any]) -> str:
                 }
             )
         return _to_csv(_RUN_TOOLS_HEADERS, rows)
+
+
+def report_to_csv(report: dict[str, Any]) -> str:
+    """Render the library report as one CSV document.
+
+    The document keeps every section in one file. A section column marks
+    each row as the library total, one source folder, or one agent. Leave
+    a cell empty when the section does not carry that metric.
+    """
+
+    totals = report["totals"]
+    with traced_operation(
+        "export.report_csv", {"report.runs": totals["runs"], "report.agents": totals["agents"]}
+    ):
+        rows: list[dict[str, Any]] = [
+            {
+                "section": _SECTION_TOTAL,
+                "source_dir": "",
+                "agent_name": "",
+                "runs": totals["runs"],
+                "ok_runs": totals["ok_runs"],
+                "failure_runs": totals["failure_runs"],
+                "labeled_runs": totals["labeled_runs"],
+                "unlabeled_runs": totals["unlabeled_runs"],
+                "tool_calls": totals["tool_calls"],
+                "agents": totals["agents"],
+                "avg_duration_ms": "",
+                "total_duration_ms": totals["total_duration_ms"],
+            }
+        ]
+        for item in report.get("by_source", []):
+            rows.append(
+                {
+                    "section": _SECTION_SOURCE,
+                    "source_dir": item["source_dir"],
+                    "agent_name": "",
+                    "runs": item["runs"],
+                    "ok_runs": "",
+                    "failure_runs": item["failure_runs"],
+                    "labeled_runs": "",
+                    "unlabeled_runs": item["unlabeled_runs"],
+                    "tool_calls": item["tool_calls"],
+                    "agents": item["agents"],
+                    "avg_duration_ms": "",
+                    "total_duration_ms": "",
+                }
+            )
+        for item in report.get("by_agent", []):
+            rows.append(
+                {
+                    "section": _SECTION_AGENT,
+                    "source_dir": "",
+                    "agent_name": item["agent_name"],
+                    "runs": item["runs"],
+                    "ok_runs": "",
+                    "failure_runs": item["failure_runs"],
+                    "labeled_runs": "",
+                    "unlabeled_runs": item["unlabeled_runs"],
+                    "tool_calls": item["tool_calls"],
+                    "agents": "",
+                    "avg_duration_ms": item["avg_duration_ms"],
+                    "total_duration_ms": "",
+                }
+            )
+        return _to_csv(_REPORT_HEADERS, rows)
 
 
 def _to_csv(headers: list[str], rows: list[dict[str, Any]]) -> str:

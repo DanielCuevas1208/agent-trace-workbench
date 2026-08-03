@@ -10,6 +10,8 @@ Release 0.9 adds run labels and review notes. Attach context to each run in the 
 
 Release 1.0 adds a review list and a folder-level library report. Triage runs without a label, then read the library totals by agent and source folder.
 
+Release 1.1 adds a CSV export for the library report and bulk label actions on the review list. Download the report as CSV, or label several runs in one action.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -52,12 +54,12 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 - `models.py` defines the portable trace contract.
 - `handlers.py` loads local handler config and applies side-effect guards.
-- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It also computes the review list and the library report.
+- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It also computes the review list, applies bulk labels, and builds the library report.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
 - `compare.py` aligns tool calls by recorded position and reports field-level deltas.
-- `export.py` renders comparisons and run tool calls as CSV files.
+- `export.py` renders comparisons, run tool calls, and library reports as CSV files.
 - `collector.py` posts recorded runs to a local collector over OTLP HTTP JSON.
 - `main.py` serves the interface and the JSON API.
 - `telemetry.py` creates OpenTelemetry spans and exports them locally.
@@ -76,7 +78,7 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-`requirements.txt` pins the application and verification dependencies.
+`requirements.txt` pins the application and verification dependencies. `requirements.lock` pins the full resolved tree for reproducible installs.
 
 ## Run the sample
 
@@ -668,6 +670,41 @@ curl.exe "http://127.0.0.1:8000/api/review"
 
 The review page links each run to its annotation form.
 
+## Bulk labeling
+
+Apply one label to several runs at once.
+
+```powershell
+python -m agent_trace_workbench.cli review --label triaged
+```
+
+The command labels every unreviewed run.
+
+```json
+{
+  "label": "triaged",
+  "updated": 2
+}
+```
+
+Label specific runs by repeating `--run-id`.
+
+```powershell
+python -m agent_trace_workbench.cli review --label golden --run-id run-baseline-001
+```
+
+The review page offers the same action. Check the runs you reviewed, type a label, and apply it. The labeled runs leave the list.
+
+The JSON API accepts a batch.
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/api/review/labels `
+  -H "content-type: application/json" `
+  -d "{\"run_ids\": [\"run-baseline-001\", \"run-candidate-001\"], \"label\": \"triaged\"}"
+```
+
+The response shows the count of updated runs. An empty label clears the review flag on each listed run. One batch labels at most 100 runs.
+
 ## Library report
 
 Summarize the local trace library by agent and source folder.
@@ -714,6 +751,31 @@ curl.exe "http://127.0.0.1:8000/api/report"
 
 The JSON API returns the same document.
 
+## Report CSV
+
+Download the library report as one CSV document.
+
+```powershell
+python -m agent_trace_workbench.cli report --format csv
+```
+
+The document keeps every section in one file. A `section` column marks each row as the library total, one source folder, or one agent.
+
+```text
+section,source_dir,agent_name,runs,ok_runs,failure_runs,labeled_runs,unlabeled_runs,tool_calls,agents,avg_duration_ms,total_duration_ms
+total,,,2,1,1,0,2,5,1,,500.0
+source,fixtures,,2,,1,,2,5,1,,
+agent,,catalog-assistant,2,,1,,2,5,,250.0,
+```
+
+Empty cells mean the section does not carry that metric. The report page and the API offer the same download.
+
+```powershell
+curl.exe -o library-report.csv "http://127.0.0.1:8000/api/report?format=csv"
+```
+
+The API returns the file as an attachment. The CSV keeps commas and quotes escaped, so it opens cleanly in any spreadsheet tool.
+
 ## Trace contract
 
 A trace requires `trace_id`, `run_id`, `agent_name`, and `spans`.
@@ -736,7 +798,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, export, review, and reports. It covers the CLI, the API, and collector export.
+The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, and reports. It covers the CLI, the API, and collector export.
 
 Run the checks with these commands.
 
@@ -747,7 +809,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 157 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 177 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements.lock` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -762,6 +824,10 @@ Search uses SQL `LIKE` matching. It does not rank results by relevance.
 Labels and notes stay local to the workbench database. Portable export files do not carry them.
 
 The review list shows runs with an empty label. A blank label counts as unreviewed.
+
+Bulk labeling sets the label only. It leaves the notes on each run untouched.
+
+The report CSV keeps every section in one file. Spreadsheet users filter rows by the section column.
 
 The library report groups by the recorded source folder. API-ingested runs group under `api`. A re-ingest updates the source folder to the latest ingestion.
 
@@ -804,7 +870,8 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 0.8 complete: export workbench spans to a local OpenTelemetry collector.
 - Release 0.9 complete: add run labels and notes for long-lived evidence review.
 - Release 1.0 complete: add a review list for runs without labels and a folder-level summary report.
-- Release 1.1: add a CSV export for the library report and bulk label actions on the review list.
+- Release 1.1 complete: add a CSV export for the library report and bulk label actions on the review list.
+- Release 1.2: add per-run retention and cleanup of old evidence.
 
 ## Repository map
 
@@ -818,4 +885,4 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 
 `data/` is created at runtime and remains ignored by Git.
 
-`requirements.txt` pins the direct dependencies used by local setup and CI.
+`requirements.txt` pins the direct dependencies used by local setup and CI. `requirements.lock` pins the full resolved tree for reproducible installs.
