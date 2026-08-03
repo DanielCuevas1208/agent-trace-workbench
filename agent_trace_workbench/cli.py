@@ -45,6 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser = subparsers.add_parser("list", help="List recent runs")
     list_parser.add_argument("--limit", type=int, default=20)
 
+    subparsers.add_parser("store", help="Show the local store configuration")
+
     replay = subparsers.add_parser("replay", help="Replay a recorded run")
     replay.add_argument("run_id")
     replay.add_argument(
@@ -119,6 +121,8 @@ def main() -> None:
         print(json.dumps({"exported": exported}, indent=2))
     elif args.command == "list":
         print(json.dumps(store.list_runs(args.limit), indent=2))
+    elif args.command == "store":
+        print(json.dumps(store.store_info(), indent=2))
     elif args.command == "replay":
         trace = store.get_trace(args.run_id)
         if trace is None:

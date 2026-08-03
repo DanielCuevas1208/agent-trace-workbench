@@ -26,6 +26,8 @@ You should receive a reply within seven days. Keep the report private until a fi
 
 The workbench stores trace data in a local SQLite file. It does not send data to a hosted service.
 
+WAL mode keeps the journal in local `-wal` and `-shm` files beside the database.
+
 OpenTelemetry stays local by default. Do not export local spans unless you control the collector.
 
 Replay runs local handler scripts from your configuration. Review a handler before you run it. The side-effect guard does not inspect handler code.
@@ -34,5 +36,6 @@ Replay runs local handler scripts from your configuration. Review a handler befo
 
 | Version | Supported |
 | ------- | --------- |
-| 0.5.x   | Yes       |
+| 0.6.x   | Yes       |
+| 0.5.x   | No        |
 | 0.4.x   | No        |

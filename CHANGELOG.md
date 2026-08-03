@@ -4,6 +4,25 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 0.6.0 - 2026-08-03
+
+### Added
+
+- WAL journal mode for the SQLite store so readers keep a committed snapshot.
+- A busy timeout on every store connection so writers wait for the write lock.
+- A retry path for write operations that report a transient database lock.
+- `atw store` command that prints the active store configuration.
+- `GET /api/store` route that exposes the store configuration.
+- `ATW_DB_BUSY_TIMEOUT_MS` environment variable for the server.
+- A live store status line in the page footer.
+- Deterministic tests for WAL mode, retry behavior, shared-database use, the CLI command, and the API route.
+
+### Changed
+
+- Version numbers moved to 0.6.0.
+- The architecture now includes SQLite coordination for shared databases.
+- The run and dashboard pages report the active journal mode and busy timeout.
+
 ## 0.5.0 - 2026-08-03
 
 ### Added

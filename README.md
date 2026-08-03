@@ -4,7 +4,7 @@ Agent Trace Workbench keeps agent-run evidence on your machine.
 
 It records local JSON traces in SQLite. It replays tool calls with deterministic handlers. It compares runs by call order, timing, results, and outcomes.
 
-Release 0.5 adds OTLP import and local export files.
+Release 0.6 adds shared-database coordination. A watcher, a server, and CLI commands share one SQLite file safely.
 
 ## Value
 
@@ -14,7 +14,7 @@ This workbench makes each boundary visible. It shows inputs, outputs, timing, at
 
 The design supports repeatable review. A replay runs a registered local handler when available. It uses the recorded result when no handler exists.
 
-No hosted service is required. The SQLite database stays in the local `data` directory.
+No hosted service is required. The SQLite database stays in the local `data` directory. Multiple local tools can share the same database file.
 
 The watcher supports a common handoff. An agent writes a JSON file. The workbench finds the file and records the run.
 
@@ -39,9 +39,11 @@ Import the OpenTelemetry JSON format to bring agent traces in. Export runs to po
                                                 local export files
 ```
 
+SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. Writers wait for the write lock.
+
 - `models.py` defines the portable trace contract.
 - `handlers.py` loads local handler config and applies side-effect guards.
-- `storage.py` owns the SQLite schema and idempotent ingestion.
+- `storage.py` owns the SQLite schema, WAL coordination, and idempotent ingestion.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
@@ -333,6 +335,49 @@ curl.exe -o run.otlp.json http://127.0.0.1:8000/api/runs/run-baseline-001/export
 
 The run page offers the same downloads.
 
+## Shared database
+
+One SQLite file can serve a watcher, a server, and a CLI command at once.
+
+The store runs in WAL mode. A reader sees the last committed snapshot. It never waits for a writer.
+
+Each connection sets a busy timeout. A writer waits for the write lock instead of failing on first contact.
+
+Write operations retry when the database reports a lock. This matches the watcher's steady write pattern.
+
+Show the active settings with the CLI.
+
+```powershell
+python -m agent_trace_workbench.cli store
+```
+
+The command prints the journal mode, busy timeout, and SQLite version.
+
+```json
+{
+  "db_path": "data/workbench.db",
+  "journal_mode": "wal",
+  "busy_timeout_ms": 5000,
+  "synchronous": "normal",
+  "sqlite_version": "3.45.1"
+}
+```
+
+The JSON API exposes the same settings.
+
+```powershell
+curl.exe http://127.0.0.1:8000/api/store
+```
+
+Change the busy timeout for the server with `ATW_DB_BUSY_TIMEOUT_MS`.
+
+```powershell
+$env:ATW_DB_BUSY_TIMEOUT_MS = "2000"
+uvicorn agent_trace_workbench.main:app
+```
+
+The footer on every page shows the live store settings.
+
 ## Replay handlers
 
 Replay is deterministic. It runs a local handler when one exists for a tool. It uses the recorded result when no handler exists.
@@ -447,7 +492,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers schema validation, idempotent storage, directory ingestion, handler config, side-effect guards, replay, comparison, search, filtering, saved comparisons, OTLP conversion, export files, CLI, and API routes.
+The test suite covers schema validation, idempotent storage, WAL coordination, retry behavior, directory ingestion, handler config, side-effect guards, replay, comparison, search, filtering, saved comparisons, OTLP conversion, export files, CLI, and API routes.
 
 Run the checks with these commands.
 
@@ -457,7 +502,7 @@ ruff check .
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 80 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 91 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -477,7 +522,9 @@ The exporter stores workbench fields as `workbench.*` attributes.
 
 `run_id` derives from the service name and trace ID. It may differ from the producer's run label.
 
-SQLite is suitable for a local workbench. This release does not coordinate multiple writers.
+SQLite allows one writer at a time. A writer waits for the busy timeout, then the write retries and reports the error.
+
+WAL mode creates `-wal` and `-shm` files beside the database.
 
 The UI accepts one trace document per request. Use the CLI watcher for directory ingestion.
 
@@ -491,7 +538,7 @@ OpenTelemetry spans cover workbench operations. The release does not export agen
 
 - Release 0.4 complete: add search, span filtering, and saved comparisons.
 - Release 0.5 complete: add OTLP import and local export files.
-- Release 0.6: add coordination for shared databases.
+- Release 0.6 complete: add coordination for shared databases.
 - Release 0.7: add richer comparison views and CSV export.
 - Release 0.8: export workbench spans to a local OpenTelemetry collector.
 
@@ -499,7 +546,7 @@ OpenTelemetry spans cover workbench operations. The release does not export agen
 
 `fixtures/` contains meaningful baseline and candidate traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic core, guard, search, filtering, comparison, OTLP, export, CLI, and API tests.
+`tests/` contains deterministic tests for the core, shared-database coordination, guards, search, OTLP, export, CLI, and API.
 
 `static/` and `templates/` contain the presentation layer.
 
