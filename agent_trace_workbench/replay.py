@@ -5,12 +5,20 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any, Callable
+from pathlib import Path
+from typing import Any
 
+from .handlers import (
+    HandlerConfig,
+    ReplayHandler,
+    ReplayPolicy,
+    SideEffectLevel,
+    ToolHandler,
+    build_registry,
+    side_effect_allowed,
+)
 from .models import TraceDocument
 from .telemetry import traced_operation
-
-ToolHandler = Callable[[dict[str, Any]], Any]
 
 
 @dataclass(frozen=True)
@@ -27,6 +35,9 @@ class ReplayStep:
     recorded_result: Any
     replayed_result: Any
     error: str | None = None
+    guarded: bool = False
+    side_effect_level: str | None = None
+    policy: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -40,6 +51,9 @@ class ReplayStep:
             "recorded_result": self.recorded_result,
             "replayed_result": self.replayed_result,
             "error": self.error,
+            "guarded": self.guarded,
+            "side_effect_level": self.side_effect_level,
+            "policy": self.policy,
         }
 
 
@@ -50,6 +64,7 @@ class ReplayReport:
     run_id: str
     deterministic: bool
     steps: list[ReplayStep]
+    policy: str | None = None
 
     @property
     def total_steps(self) -> int:
@@ -63,44 +78,95 @@ class ReplayReport:
     def failed_steps(self) -> int:
         return sum(step.replayed_outcome == "failure" for step in self.steps)
 
+    @property
+    def guarded_steps(self) -> int:
+        return sum(step.guarded for step in self.steps)
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
             "deterministic": self.deterministic,
+            "policy": self.policy,
             "total_steps": len(self.steps),
             "matched_steps": self.matched_steps,
             "failed_steps": self.failed_steps,
+            "guarded_steps": self.guarded_steps,
             "steps": [step.as_dict() for step in self.steps],
         }
 
 
 class ReplayEngine:
-    """Replay tools with local handlers and recorded-result fallback."""
+    """Replay tools with guarded local handlers and recorded-result fallback."""
 
-    def __init__(self, handlers: dict[str, ToolHandler] | None = None) -> None:
+    def __init__(
+        self,
+        handlers: dict[str, ReplayHandler] | None = None,
+        policy: ReplayPolicy = ReplayPolicy.STRICT,
+    ) -> None:
         self.handlers = handlers or {}
+        self.policy = policy
 
-    def register(self, tool_name: str, handler: ToolHandler) -> None:
-        """Register a deterministic local handler."""
+    def register(
+        self,
+        tool_name: str,
+        handler: ToolHandler,
+        *,
+        side_effect: SideEffectLevel = SideEffectLevel.UNKNOWN,
+    ) -> None:
+        """Register a local handler with a declared side-effect level."""
 
-        self.handlers[tool_name] = handler
+        self.handlers[tool_name] = ReplayHandler(
+            tool_name, side_effect, "inline", func=handler
+        )
+
+    def load_config(
+        self,
+        config: HandlerConfig,
+        base_dir: str | Path | None = None,
+    ) -> None:
+        """Adopt a config policy and register its local handlers."""
+
+        self.policy = config.policy
+        self.handlers.update(build_registry(config, base_dir))
 
     def replay(self, trace: TraceDocument) -> ReplayReport:
         """Replay all tool calls in their recorded order."""
 
-        with traced_operation("replay.run", {"run.id": trace.run_id}):
+        with traced_operation(
+            "replay.run",
+            {"run.id": trace.run_id, "replay.policy": self.policy.value},
+        ):
             steps: list[ReplayStep] = []
             for index, span in enumerate(trace.tool_spans(), start=1):
                 assert span.tool_call is not None
                 call = span.tool_call
                 handler = self.handlers.get(call.name)
-                mode = "handler" if handler else "recorded-fallback"
-                replayed_outcome = call.outcome if not handler else "success"
-                error = None
-                replayed_result = call.result
-                if handler:
+                if handler is None:
+                    mode = "recorded-fallback"
+                    guarded = False
+                    level = None
+                    replayed_outcome = call.outcome
+                    error = None
+                    replayed_result = call.result
+                elif not side_effect_allowed(handler.side_effect, self.policy):
+                    mode = "guarded"
+                    guarded = True
+                    level = handler.side_effect.value
+                    replayed_outcome = call.outcome
+                    error = None
+                    replayed_result = call.result
+                else:
+                    mode = "handler"
+                    guarded = False
+                    level = handler.side_effect.value
+                    replayed_outcome = "success"
+                    error = None
+                    replayed_result = call.result
                     try:
-                        replayed_result = handler(call.arguments)
+                        if handler.func is not None:
+                            replayed_result = handler.func(call.arguments)
+                        else:
+                            replayed_result = handler.fixed_result
                     except Exception as exc:  # noqa: BLE001 - report tool failures as data
                         replayed_outcome = "failure"
                         error = str(exc)
@@ -117,9 +183,17 @@ class ReplayEngine:
                         recorded_result=call.result,
                         replayed_result=replayed_result,
                         error=error,
+                        guarded=guarded,
+                        side_effect_level=level,
+                        policy=self.policy.value,
                     )
                 )
-            return ReplayReport(run_id=trace.run_id, deterministic=True, steps=steps)
+            return ReplayReport(
+                run_id=trace.run_id,
+                deterministic=True,
+                steps=steps,
+                policy=self.policy.value,
+            )
 
 
 def canonical_hash(value: Any) -> str:
@@ -142,8 +216,13 @@ def default_replay_engine() -> ReplayEngine:
                 {"sku": "lamp-02", "name": "Task Light", "price": 52.0},
             ],
         },
+        side_effect=SideEffectLevel.READ_ONLY,
     )
-    engine.register("get_inventory", lambda args: {"sku": args.get("sku"), "available": 12})
+    engine.register(
+        "get_inventory",
+        lambda args: {"sku": args.get("sku"), "available": 12},
+        side_effect=SideEffectLevel.READ_ONLY,
+    )
     return engine
 
 

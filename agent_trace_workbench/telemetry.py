@@ -54,7 +54,7 @@ except ImportError:  # pragma: no cover - used only when optional local packages
 
 
 SERVICE_NAME = "agent-trace-workbench"
-_TRACER = trace.get_tracer(SERVICE_NAME, "0.1.0")
+_TRACER = trace.get_tracer(SERVICE_NAME, "0.3.0")
 
 
 def configure_telemetry() -> None:
