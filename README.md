@@ -4,7 +4,7 @@ Agent Trace Workbench keeps agent-run evidence on your machine.
 
 It records local JSON traces in SQLite. It replays tool calls with deterministic handlers. It compares runs by call order, timing, results, and outcomes.
 
-Release 0.7 adds richer comparison views and CSV export. Field-level deltas show which keys changed. CSV files carry comparisons and tool calls into any spreadsheet tool.
+Release 0.8 sends workbench spans to a local OpenTelemetry collector. Set one environment variable to watch tool operations in any OpenTelemetry tool.
 
 ## Value
 
@@ -37,6 +37,8 @@ Import the OpenTelemetry JSON format to bring agent traces in. Export runs to po
                                                       |
                                                       v
                                                 local export files
+
+        workbench operations ----spans----> local OpenTelemetry collector
 ```
 
 SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. Writers wait for the write lock.
@@ -50,9 +52,9 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 - `compare.py` aligns tool calls by recorded position and reports field-level deltas.
 - `export.py` renders comparisons and run tool calls as CSV files.
 - `main.py` serves the interface and the JSON API.
-- `telemetry.py` creates OpenTelemetry spans for local operations.
+- `telemetry.py` records local operation spans and exports them to a console or a local OTLP collector.
 
-The OpenTelemetry integration stays local by default. Set `ATW_OTEL_CONSOLE=1` to print workbench spans.
+The OpenTelemetry integration stays local by default. Set `ATW_OTEL_CONSOLE=1` to print workbench spans. Set `ATW_OTEL_ENDPOINT` to send them to a local collector.
 
 ## Setup
 
@@ -441,6 +443,51 @@ uvicorn agent_trace_workbench.main:app
 
 The footer on every page shows the live store settings.
 
+## Telemetry export
+
+The workbench records spans for its own operations. It keeps telemetry local by default.
+
+Set `ATW_OTEL_CONSOLE=1` to print workbench spans to the console.
+
+Send spans to a local collector with `ATW_OTEL_ENDPOINT`.
+
+```powershell
+$env:ATW_OTEL_ENDPOINT = "http://localhost:4318"
+uvicorn agent_trace_workbench.main:app
+```
+
+The exporter adds the `/v1/traces` path when the endpoint has no path.
+
+Show the active telemetry settings with the CLI.
+
+```powershell
+python -m agent_trace_workbench.cli telemetry
+```
+
+The command prints the active exporter settings.
+
+```json
+{
+  "active": true,
+  "service_name": "agent-trace-workbench",
+  "endpoint": "http://localhost:4318",
+  "console": false,
+  "batch_timeout_ms": 5000
+}
+```
+
+The JSON API exposes the same settings.
+
+```powershell
+curl.exe http://127.0.0.1:8000/api/telemetry
+```
+
+Set the resource service name with `ATW_OTEL_SERVICE_NAME`.
+
+Change the batch flush interval with `ATW_OTEL_BATCH_TIMEOUT_MS`.
+
+The footer on every page shows the live telemetry status.
+
 ## Replay handlers
 
 Replay is deterministic. It runs a local handler when one exists for a tool. It uses the recorded result when no handler exists.
@@ -555,7 +602,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers schema validation, idempotent storage, WAL coordination, retry behavior, directory ingestion, handler config, side-effect guards, replay, comparison, search, filtering, saved comparisons, OTLP conversion, export files, CSV rendering, CLI, and API routes.
+The test suite covers schema validation, idempotent storage, WAL coordination, retry behavior, directory ingestion, handler config, side-effect guards, replay, comparison, search, filtering, saved comparisons, OTLP conversion, export files, CSV rendering, telemetry export, CLI, and API routes.
 
 Run the checks with these commands.
 
@@ -565,7 +612,7 @@ ruff check .
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 102 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 118 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -595,7 +642,7 @@ The watcher scans one directory level. It does not recurse into child directorie
 
 The watcher uses file size and modification time. A rare same-size, same-time rewrite may wait for the next change.
 
-OpenTelemetry spans cover workbench operations. The release does not export agent spans to a remote collector.
+Workbench spans cover local operations. They export to a local collector when you set `ATW_OTEL_ENDPOINT`. The workbench never sends agent run data off your machine.
 
 CSV exports keep arguments and results as JSON cells. Spreadsheet tools cannot index inside those cells.
 
@@ -605,7 +652,8 @@ CSV exports keep arguments and results as JSON cells. Spreadsheet tools cannot i
 - Release 0.5 complete: add OTLP import and local export files.
 - Release 0.6 complete: add coordination for shared databases.
 - Release 0.7 complete: add richer comparison views and CSV export.
-- Release 0.8: export workbench spans to a local OpenTelemetry collector.
+- Release 0.8 complete: export workbench spans to a local OpenTelemetry collector.
+- Release 0.9: publish recorded agent runs to a local OpenTelemetry collector.
 
 ## Repository map
 

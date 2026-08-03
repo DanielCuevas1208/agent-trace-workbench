@@ -26,6 +26,7 @@
         <span>Local by design.</span>
         <span>Trace data stays in your SQLite file.</span>
         {% if store %}<span class="store-status">{{ store.journal_mode }} journal · busy {{ store.busy_timeout_ms }} ms · SQLite {{ store.sqlite_version }}</span>{% endif %}
+        {% if telemetry %}<span class="telemetry-status">{% if telemetry.endpoint %}OTLP {{ telemetry.endpoint }}{% elif telemetry.console %}console telemetry{% else %}telemetry off{% endif %}</span>{% endif %}
     </footer>
 </body>
 </html>

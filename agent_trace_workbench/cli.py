@@ -15,6 +15,7 @@ from .models import TraceDocument
 from .otlp import parse_otlp_json, trace_to_otlp_json
 from .replay import default_replay_engine
 from .storage import TraceStore
+from .telemetry import telemetry_status
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -47,6 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
     list_parser.add_argument("--limit", type=int, default=20)
 
     subparsers.add_parser("store", help="Show the local store configuration")
+
+    subparsers.add_parser("telemetry", help="Show the local telemetry configuration")
 
     replay = subparsers.add_parser("replay", help="Replay a recorded run")
     replay.add_argument("run_id")
@@ -136,6 +139,8 @@ def main() -> None:
         print(json.dumps(store.list_runs(args.limit), indent=2))
     elif args.command == "store":
         print(json.dumps(store.store_info(), indent=2))
+    elif args.command == "telemetry":
+        print(json.dumps(telemetry_status(), indent=2))
     elif args.command == "replay":
         trace = store.get_trace(args.run_id)
         if trace is None:

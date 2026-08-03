@@ -4,6 +4,25 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 0.8.0 - 2026-08-03
+
+### Added
+
+- OTLP HTTP export of workbench spans to a local OpenTelemetry collector.
+- `ATW_OTEL_ENDPOINT` environment variable for the collector address.
+- `ATW_OTEL_SERVICE_NAME` and `ATW_OTEL_BATCH_TIMEOUT_MS` environment variables.
+- Automatic `/v1/traces` path completion for collector endpoints.
+- `atw telemetry` command that prints the active telemetry configuration.
+- `GET /api/telemetry` route that exposes the telemetry configuration.
+- A live telemetry status line in the page footer.
+- Deterministic tests for telemetry configuration, span export, the CLI command, and the API route.
+
+### Changed
+
+- Version numbers moved to 0.8.0.
+- The OpenTelemetry integration can export spans to a local collector.
+- The architecture now includes a local OTLP collector export path.
+
 ## 0.7.0 - 2026-08-03
 
 ### Added
