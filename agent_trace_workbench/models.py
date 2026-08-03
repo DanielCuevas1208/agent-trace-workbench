@@ -143,3 +143,11 @@ class ComparisonCreate(BaseModel):
     run_a: str = Field(min_length=1)
     run_b: str = Field(min_length=1)
     label: str = Field(min_length=1, max_length=120)
+
+
+class CollectorExportRequest(BaseModel):
+    """Request body for sending one run to a local collector."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    endpoint: str | None = Field(default=None, min_length=1, max_length=500)

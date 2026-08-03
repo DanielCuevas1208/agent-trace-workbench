@@ -4,6 +4,24 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 0.8.0 - 2026-08-03
+
+### Added
+
+- OTLP HTTP JSON span export for workbench operations to a local collector.
+- `ATW_OTEL_COLLECTOR_ENDPOINT` environment variable that points the server at a local collector.
+- On-demand collector export for recorded runs through `atw publish`.
+- `POST /api/runs/{run_id}/export/collector` route that sends one run to a collector.
+- A "Send to collector" action on the run detail page.
+- A live collector endpoint line in the page footer.
+- Deterministic tests for the collector export, the OTLP JSON span exporter, the CLI command, and the API route.
+
+### Changed
+
+- Version numbers moved to 0.8.0.
+- Workbench operation spans export to the console or a local collector when configured.
+- The architecture now includes a local collector export layer.
+
 ## 0.7.0 - 2026-08-03
 
 ### Added

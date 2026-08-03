@@ -28,7 +28,7 @@ The workbench stores trace data in a local SQLite file. It does not send data to
 
 WAL mode keeps the journal in local `-wal` and `-shm` files beside the database.
 
-OpenTelemetry stays local by default. Do not export local spans unless you control the collector.
+OpenTelemetry stays local by default. Do not export local spans unless you control the collector. Point `ATW_OTEL_COLLECTOR_ENDPOINT` only at a collector you run.
 
 Replay runs local handler scripts from your configuration. Review a handler before you run it. The side-effect guard does not inspect handler code.
 
@@ -36,6 +36,6 @@ Replay runs local handler scripts from your configuration. Review a handler befo
 
 | Version | Supported |
 | ------- | --------- |
-| 0.7.x   | Yes       |
+| 0.8.x   | Yes       |
+| 0.7.x   | No        |
 | 0.6.x   | No        |
-| 0.5.x   | No        |

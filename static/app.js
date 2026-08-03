@@ -79,4 +79,26 @@
             chip.addEventListener("click", () => applyFilter(chip.dataset.state));
         });
     }
+
+    const publishButton = document.querySelector("[data-collector-publish]");
+    if (publishButton) {
+        const status = document.querySelector("#publish-status");
+        publishButton.addEventListener("click", async () => {
+            status.className = "form-status";
+            status.textContent = "Sending to collector...";
+            try {
+                const response = await fetch(
+                    `/api/runs/${encodeURIComponent(publishButton.dataset.collectorPublish)}/export/collector`,
+                    { method: "POST", headers: { "content-type": "application/json" } },
+                );
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || "Run could not be sent.");
+                if (result.status !== "accepted") throw new Error(result.detail || "Collector rejected the run.");
+                status.textContent = `Sent ${result.span_count} spans.`;
+            } catch (error) {
+                status.className = "form-status error";
+                status.textContent = error.message;
+            }
+        });
+    }
 })();

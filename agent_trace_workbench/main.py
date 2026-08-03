@@ -13,14 +13,15 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from .collector import export_run_to_collector
 from .compare import compare_runs
 from .export import comparison_to_csv, run_tools_to_csv
 from .handlers import ReplayPolicy, load_handler_config
-from .models import ComparisonCreate, TraceDocument
+from .models import CollectorExportRequest, ComparisonCreate, TraceDocument
 from .otlp import parse_otlp_json, trace_to_otlp_json
 from .replay import ReplayEngine, default_replay_engine
 from .storage import TraceStore
-from .telemetry import configure_telemetry
+from .telemetry import configure_telemetry, traces_url
 
 ROOT = Path(__file__).resolve().parent.parent
 try:
@@ -35,7 +36,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     configure_telemetry()
     database_path = db_path or os.getenv("ATW_DB_PATH", "data/workbench.db")
     busy_timeout_ms = _env_int("ATW_DB_BUSY_TIMEOUT_MS", 5000)
-    app = FastAPI(title="Agent Trace Workbench", version="0.7.0")
+    app = FastAPI(title="Agent Trace Workbench", version="0.8.0")
     app.state.store = TraceStore(database_path, busy_timeout_ms=busy_timeout_ms)
     app.state.replay_engine = _build_replay_engine()
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
@@ -54,6 +55,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 "stats": _stats(runs),
                 "query": q or "",
                 "store": app.state.store.store_info(),
+                "telemetry": _telemetry_info(),
             },
         )
 
@@ -73,7 +75,12 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         return render_template(
             request,
             "run.html",
-            {"run": run, "filters": filter_set, "store": app.state.store.store_info()},
+            {
+                "run": run,
+                "filters": filter_set,
+                "store": app.state.store.store_info(),
+                "telemetry": _telemetry_info(),
+            },
         )
 
     @app.get("/runs/{run_id}/replay", response_class=HTMLResponse)
@@ -84,6 +91,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             "run": app.state.store.get_run(run_id),
             "report": report.as_dict(),
             "store": app.state.store.store_info(),
+            "telemetry": _telemetry_info(),
         }
         return render_template(request, "replay.html", context)
 
@@ -106,6 +114,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             "selected_a": run_a,
             "selected_b": run_b,
             "store": app.state.store.store_info(),
+            "telemetry": _telemetry_info(),
         }
         return render_template(request, "compare.html", context)
 
@@ -173,6 +182,15 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             )
         content = json.dumps(payload, indent=2, default=str)
         return _download_response(content, filename, media_type)
+
+    @app.post("/api/runs/{run_id}/export/collector")
+    def api_publish_run(
+        run_id: str,
+        payload: CollectorExportRequest | None = None,
+    ) -> dict[str, Any]:
+        trace = _get_trace_or_404(app.state.store, run_id)
+        endpoint = _collector_endpoint(payload)
+        return export_run_to_collector(trace, endpoint).as_dict()
 
     @app.get("/api/runs/{run_id}/replay")
     def api_replay(run_id: str) -> dict[str, Any]:
@@ -319,6 +337,29 @@ def _env_int(name: str, default: int) -> int:
         return int(value)
     except ValueError:
         raise ValueError(f"{name} must be an integer") from None
+
+
+def _collector_endpoint(payload: CollectorExportRequest | None) -> str:
+    """Resolve a collector endpoint from the request or the environment."""
+
+    endpoint = (payload.endpoint if payload is not None else None) or os.getenv(
+        "ATW_OTEL_COLLECTOR_ENDPOINT"
+    )
+    if not endpoint:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide an endpoint or set ATW_OTEL_COLLECTOR_ENDPOINT",
+        )
+    return endpoint
+
+
+def _telemetry_info() -> dict[str, str]:
+    """Return the active local span export settings for the page footer."""
+
+    endpoint = os.getenv("ATW_OTEL_COLLECTOR_ENDPOINT")
+    if endpoint:
+        return {"collector_endpoint": endpoint, "collector_url": traces_url(endpoint)}
+    return {"collector_endpoint": "", "collector_url": ""}
 
 
 def _span_filter_set(
