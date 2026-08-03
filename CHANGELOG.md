@@ -4,6 +4,27 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 0.7.0 - 2026-08-03
+
+### Added
+
+- Field-level comparison details that list changed argument and result keys.
+- Error change detection for each compared tool position.
+- Comparison aggregates for added, removed, outcome, and error changes.
+- A state filter on the compare page for same, changed, added, and removed rows.
+- CSV export for comparison reports and run tool calls.
+- `atw compare --format csv` and `atw export --format csv` on the CLI.
+- `GET /api/compare?format=csv` and `GET /api/runs/{run_id}/export?format=csv` on the API.
+- CSV download links on the compare page and the run page.
+- Deterministic tests for CSV rendering, escaping, the CLI, and the API routes.
+
+### Changed
+
+- Version numbers moved to 0.7.0.
+- The compare page now shows outcome changes and field-level deltas.
+- The comparison report includes added, removed, outcome, and error counts.
+- The architecture now includes a CSV export layer.
+
 ## 0.6.0 - 2026-08-03
 
 ### Added

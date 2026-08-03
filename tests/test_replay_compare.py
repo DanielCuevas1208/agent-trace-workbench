@@ -29,3 +29,22 @@ def test_compare_marks_result_timing_and_added_call_changes(baseline, candidate)
     assert report.tool_diffs[1].result_changed is True
     assert report.tool_diffs[2].state == "added"
 
+
+def test_compare_reports_field_level_key_changes(baseline, candidate):
+    report = compare_runs(baseline, candidate)
+
+    assert report.added_tools == 1
+    assert report.removed_tools == 0
+    assert report.outcome_changed_tools == 1
+    assert report.error_changed_tools == 1
+
+    assert report.tool_diffs[1].result_keys_changed == ["available"]
+    assert report.tool_diffs[1].argument_keys_changed == []
+    assert report.tool_diffs[1].error_changed is False
+
+    added = report.tool_diffs[2]
+    assert added.error_changed is True
+    assert added.error_b == "reservation window expired"
+    assert added.argument_keys_changed == []
+    assert added.result_keys_changed == []
+

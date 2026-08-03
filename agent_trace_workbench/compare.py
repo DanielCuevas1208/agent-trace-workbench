@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .models import TraceDocument, TraceSpan
@@ -24,6 +24,9 @@ class ToolDiff:
     duration_delta_ms: float | None
     error_a: str | None
     error_b: str | None
+    argument_keys_changed: list[str] = field(default_factory=list)
+    result_keys_changed: list[str] = field(default_factory=list)
+    error_changed: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return self.__dict__.copy()
@@ -42,6 +45,22 @@ class CompareReport:
         return sum(diff.state != "same" for diff in self.tool_diffs)
 
     @property
+    def added_tools(self) -> int:
+        return sum(diff.state == "added" for diff in self.tool_diffs)
+
+    @property
+    def removed_tools(self) -> int:
+        return sum(diff.state == "removed" for diff in self.tool_diffs)
+
+    @property
+    def outcome_changed_tools(self) -> int:
+        return sum(diff.outcome_changed for diff in self.tool_diffs)
+
+    @property
+    def error_changed_tools(self) -> int:
+        return sum(diff.error_changed for diff in self.tool_diffs)
+
+    @property
     def total_duration_delta_ms(self) -> float:
         return round(self.run_b["duration_ms"] - self.run_a["duration_ms"], 3)
 
@@ -50,6 +69,10 @@ class CompareReport:
             "run_a": self.run_a,
             "run_b": self.run_b,
             "changed_tools": self.changed_tools,
+            "added_tools": self.added_tools,
+            "removed_tools": self.removed_tools,
+            "outcome_changed_tools": self.outcome_changed_tools,
+            "error_changed_tools": self.error_changed_tools,
             "total_duration_delta_ms": self.total_duration_delta_ms,
             "tool_diffs": [diff.as_dict() for diff in self.tool_diffs],
         }
@@ -72,11 +95,33 @@ def compare_runs(run_a: TraceDocument, run_b: TraceDocument) -> CompareReport:
 def _diff(index: int, span_a: TraceSpan | None, span_b: TraceSpan | None) -> ToolDiff:
     if span_a is None:
         tool_b = span_b.tool_call.name if span_b and span_b.tool_call else span_b.name
-        return ToolDiff(index, None, tool_b, "added", False, True, True, None, None, _error(span_b))
+        return ToolDiff(
+            index,
+            None,
+            tool_b,
+            "added",
+            False,
+            True,
+            True,
+            None,
+            None,
+            _error(span_b),
+            error_changed=_error(span_b) is not None,
+        )
     if span_b is None:
         tool_a = span_a.tool_call.name if span_a.tool_call else span_a.name
         return ToolDiff(
-            index, tool_a, None, "removed", True, True, True, None, _error(span_a), None
+            index,
+            tool_a,
+            None,
+            "removed",
+            True,
+            True,
+            True,
+            None,
+            _error(span_a),
+            None,
+            error_changed=_error(span_a) is not None,
         )
 
     call_a = span_a.tool_call
@@ -94,6 +139,8 @@ def _diff(index: int, span_a: TraceSpan | None, span_b: TraceSpan | None) -> Too
     state = "same"
     if names_changed or arguments_changed or outcome_changed or result_changed:
         state = "changed"
+    error_a = _error(span_a)
+    error_b = _error(span_b)
     return ToolDiff(
         index,
         tool_a,
@@ -103,9 +150,24 @@ def _diff(index: int, span_a: TraceSpan | None, span_b: TraceSpan | None) -> Too
         outcome_changed,
         result_changed,
         round(span_b.duration_ms - span_a.duration_ms, 3),
-        _error(span_a),
-        _error(span_b),
+        error_a,
+        error_b,
+        argument_keys_changed=_changed_keys(
+            call_a.arguments if call_a else None, call_b.arguments if call_b else None
+        ),
+        result_keys_changed=_changed_keys(
+            call_a.result if call_a else None, call_b.result if call_b else None
+        ),
+        error_changed=error_a != error_b,
     )
+
+
+def _changed_keys(value_a: Any, value_b: Any) -> list[str]:
+    """Return sorted top-level keys whose values differ between two mappings."""
+    if not isinstance(value_a, dict) or not isinstance(value_b, dict):
+        return []
+    keys = set(value_a) | set(value_b)
+    return sorted(key for key in keys if value_a.get(key) != value_b.get(key))
 
 
 def _error(span: TraceSpan | None) -> str | None:

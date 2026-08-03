@@ -1,0 +1,125 @@
+"""CSV rendering for run tool calls and comparison reports.
+
+The workbench uses the Python csv module so that every field is escaped
+correctly. Arguments and results keep their structured values as compact
+JSON strings inside one cell. Consumers can open the files in any
+spreadsheet tool without sending trace data to a hosted service.
+"""
+
+from __future__ import annotations
+
+import csv
+import io
+import json
+from typing import Any
+
+from .compare import CompareReport
+from .telemetry import traced_operation
+
+_YES = "yes"
+_NO = "no"
+
+_COMPARISON_HEADERS = [
+    "index",
+    "state",
+    "tool_a",
+    "tool_b",
+    "arguments_changed",
+    "outcome_changed",
+    "result_changed",
+    "error_changed",
+    "duration_delta_ms",
+    "error_a",
+    "error_b",
+    "argument_keys_changed",
+    "result_keys_changed",
+]
+
+_RUN_TOOLS_HEADERS = [
+    "sequence",
+    "tool_name",
+    "status",
+    "start_time",
+    "end_time",
+    "duration_ms",
+    "outcome",
+    "error",
+    "arguments",
+    "result",
+]
+
+
+def comparison_to_csv(report: CompareReport) -> str:
+    """Render one comparison report as a CSV document."""
+
+    with traced_operation("export.comparison_csv", {"diff.count": len(report.tool_diffs)}):
+        rows: list[dict[str, Any]] = []
+        for diff in report.tool_diffs:
+            rows.append(
+                {
+                    "index": diff.index,
+                    "state": diff.state,
+                    "tool_a": diff.tool_a or "",
+                    "tool_b": diff.tool_b or "",
+                    "arguments_changed": _flag(diff.arguments_changed),
+                    "outcome_changed": _flag(diff.outcome_changed),
+                    "result_changed": _flag(diff.result_changed),
+                    "error_changed": _flag(diff.error_changed),
+                    "duration_delta_ms": _number(diff.duration_delta_ms),
+                    "error_a": diff.error_a or "",
+                    "error_b": diff.error_b or "",
+                    "argument_keys_changed": ", ".join(diff.argument_keys_changed),
+                    "result_keys_changed": ", ".join(diff.result_keys_changed),
+                }
+            )
+        return _to_csv(_COMPARISON_HEADERS, rows)
+
+
+def run_tools_to_csv(run: dict[str, Any]) -> str:
+    """Render the recorded tool calls of one run as a CSV document."""
+
+    spans = run.get("spans", [])
+    attributes = {"run.id": run.get("run_id", ""), "span.count": len(spans)}
+    with traced_operation("export.run_csv", attributes):
+        rows: list[dict[str, Any]] = []
+        for span in spans:
+            if span.get("kind") != "tool":
+                continue
+            call = span.get("tool_call") or {}
+            rows.append(
+                {
+                    "sequence": span.get("sequence", ""),
+                    "tool_name": call.get("name") or span.get("name", ""),
+                    "status": span.get("status", ""),
+                    "start_time": span.get("start_time", ""),
+                    "end_time": span.get("end_time", ""),
+                    "duration_ms": _number(span.get("duration_ms")),
+                    "outcome": call.get("outcome") or "",
+                    "error": call.get("error") or "",
+                    "arguments": _json_cell(call.get("arguments")),
+                    "result": _json_cell(call.get("result")),
+                }
+            )
+        return _to_csv(_RUN_TOOLS_HEADERS, rows)
+
+
+def _to_csv(headers: list[str], rows: list[dict[str, Any]]) -> str:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=headers, lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(rows)
+    return buffer.getvalue()
+
+
+def _flag(value: bool) -> str:
+    return _YES if value else _NO
+
+
+def _number(value: Any) -> str:
+    return "" if value is None else str(value)
+
+
+def _json_cell(value: Any) -> str:
+    if value is None:
+        return ""
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)

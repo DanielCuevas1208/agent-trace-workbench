@@ -36,6 +36,7 @@ h3 { margin-bottom: 0; font-size: 16px; }
 .button-primary { color: #fff; background: var(--navy); }
 .button-quiet { color: var(--navy); border-color: var(--line); background: #fff; }
 .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.metric-grid-four { grid-template-columns: repeat(4, 1fr); }
 .metric-card { min-height: 140px; display: flex; flex-direction: column; justify-content: space-between; padding: 20px 22px; border: 1px solid var(--line); background: var(--panel); box-shadow: var(--shadow); }
 .metric-label, .metric-note, .field-label, .section-meta { color: var(--muted); font: 700 10px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }
 .metric-card strong { color: var(--navy); font: 500 43px/1 Georgia, serif; letter-spacing: -.05em; }
@@ -139,6 +140,19 @@ tbody tr:last-child td { border-bottom: 0; }
 .mono { font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .row-changed td { background: rgba(217,95,79,.035); }
 .compare-failure { margin-top: 18px; }
+.section-tools { display: flex; align-items: center; gap: 14px; }
+.section-tools .button { min-height: 36px; padding: 0 11px; font-size: 10px; }
+.state-filter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }
+.chip { min-height: 32px; padding: 0 13px; border: 1px solid var(--line); background: #fff; color: var(--muted); cursor: pointer; font: 700 10px/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.chip:hover { color: var(--blue); }
+.chip-active { color: #fff; border-color: var(--navy); background: var(--navy); }
+.diff-detail-row td { background: #fbfcfa; white-space: normal; }
+.diff-detail { margin: 4px 0; color: var(--muted); font-size: 12px; }
+.diff-detail summary { cursor: pointer; font: 700 10px/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.diff-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.diff-detail code { color: var(--navy); font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.diff-detail .failure-box { display: flex; flex-direction: column; gap: 4px; }
+.compare-block { padding-top: 48px; }
 .search-bar { display: flex; gap: 10px; max-width: 560px; margin-bottom: 26px; }
 .search-bar input[type="search"] { flex: 1; min-height: 42px; padding: 0 13px; border: 1px solid var(--line); background: #fff; color: var(--ink); font: 13px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; outline: 0; }
 .search-bar input[type="search"]:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(44,111,159,.12); }
@@ -156,4 +170,4 @@ tbody tr:last-child td { border-bottom: 0; }
 .table-actions .button { min-height: 32px; padding: 0 10px; font-size: 10px; }
 .export-actions { display: flex; gap: 6px; }
 .export-actions .button { min-height: 36px; padding: 0 11px; font-size: 10px; }
-@media (max-width: 800px) { .shell { width: min(100% - 32px, 620px); } .topbar { padding: 0 16px; } nav { gap: 15px; } .nav-api { display: none; } .hero { padding: 63px 0 54px; } .workspace-grid, .run-grid, .metric-grid { grid-template-columns: 1fr; } .compare-form { grid-template-columns: 1fr; gap: 4px; } .compare-vs { padding: 10px 0 0; text-align: left; } .compare-form .button { margin-top: 13px; } .detail-hero { display: block; } .detail-actions { margin-top: 25px; } .tool-grid { grid-template-columns: 1fr; } .filter-bar { grid-template-columns: 1fr; } .footer { display: block; } .footer span { display: block; margin-top: 6px; } }
+@media (max-width: 800px) { .shell { width: min(100% - 32px, 620px); } .topbar { padding: 0 16px; } nav { gap: 15px; } .nav-api { display: none; } .hero { padding: 63px 0 54px; } .workspace-grid, .run-grid, .metric-grid { grid-template-columns: 1fr; } .metric-grid-four { grid-template-columns: 1fr 1fr; } .diff-detail-grid { grid-template-columns: 1fr; } .compare-form { grid-template-columns: 1fr; gap: 4px; } .compare-vs { padding: 10px 0 0; text-align: left; } .compare-form .button { margin-top: 13px; } .detail-hero { display: block; } .detail-actions { margin-top: 25px; } .tool-grid { grid-template-columns: 1fr; } .filter-bar { grid-template-columns: 1fr; } .footer { display: block; } .footer span { display: block; margin-top: 6px; } }

@@ -11,14 +11,22 @@
     </form>
 </section>
 {% if report %}
-<section class="metric-grid detail-metrics">
+<section class="metric-grid metric-grid-four detail-metrics">
     <div class="metric-card"><span class="metric-label">Changed calls</span><strong>{{ report.changed_tools }}</strong><span class="metric-note">of {{ report.tool_diffs|length }} positions</span></div>
-    <div class="metric-card"><span class="metric-label">Baseline duration</span><strong>{{ report.run_a.duration_ms|round(1) }}<small> ms</small></strong><span class="metric-note">{{ report.run_a.status }}</span></div>
+    <div class="metric-card"><span class="metric-label">Added / removed</span><strong>{{ report.added_tools }}<small> / </small>{{ report.removed_tools }}</strong><span class="metric-note">call order delta</span></div>
+    <div class="metric-card {% if report.outcome_changed_tools %}metric-alert{% endif %}"><span class="metric-label">Outcome changes</span><strong>{{ report.outcome_changed_tools }}</strong><span class="metric-note">success vs failure</span></div>
     <div class="metric-card {% if report.total_duration_delta_ms > 0 %}metric-alert{% endif %}"><span class="metric-label">Timing delta</span><strong>{% if report.total_duration_delta_ms > 0 %}+{% endif %}{{ report.total_duration_delta_ms|round(1) }}<small> ms</small></strong><span class="metric-note">candidate minus baseline</span></div>
 </section>
-<section class="section-block">
-    <div class="section-heading"><div><div class="eyebrow">TOOL CALL DELTA</div><h2>Position-by-position</h2></div><span class="section-meta">A baseline · B candidate</span></div>
-    <div class="table-wrap"><table><thead><tr><th>#</th><th>Tool A</th><th>Tool B</th><th>State</th><th>Arguments</th><th>Result</th><th>Timing</th></tr></thead><tbody>{% for diff in report.tool_diffs %}<tr class="row-{{ diff.state }}"><td class="table-index">{{ '%02d'|format(diff.index) }}</td><td class="mono">{{ diff.tool_a or '—' }}</td><td class="mono">{{ diff.tool_b or '—' }}</td><td><span class="badge badge-{{ 'ok' if diff.state == 'same' else 'error' }}">{{ diff.state }}</span></td><td>{{ 'changed' if diff.arguments_changed else 'same' }}</td><td>{{ 'changed' if diff.result_changed else 'same' }}</td><td>{% if diff.duration_delta_ms is not none %}{% if diff.duration_delta_ms > 0 %}+{% endif %}{{ diff.duration_delta_ms|round(1) }} ms{% else %}—{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+<section class="section-block compare-block">
+    <div class="section-heading"><div><div class="eyebrow">TOOL CALL DELTA</div><h2>Position-by-position</h2></div><div class="section-tools"><span class="section-meta">A baseline · B candidate</span><a class="button button-quiet" href="/api/compare?run_a={{ selected_a }}&run_b={{ selected_b }}&format=csv" download>CSV <span aria-hidden="true">&#8595;</span></a></div></div>
+    <div class="state-filter" role="group" aria-label="Filter by change state">
+        <button class="chip chip-active" type="button" data-state="all">All</button>
+        <button class="chip" type="button" data-state="same">Same</button>
+        <button class="chip" type="button" data-state="changed">Changed</button>
+        <button class="chip" type="button" data-state="added">Added</button>
+        <button class="chip" type="button" data-state="removed">Removed</button>
+    </div>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Tool A</th><th>Tool B</th><th>State</th><th>Arguments</th><th>Result</th><th>Outcome</th><th>Timing</th></tr></thead><tbody>{% for diff in report.tool_diffs %}<tr class="row-{{ diff.state }}" data-state="{{ diff.state }}"><td class="table-index">{{ '%02d'|format(diff.index) }}</td><td class="mono">{{ diff.tool_a or '—' }}</td><td class="mono">{{ diff.tool_b or '—' }}</td><td><span class="badge badge-{{ 'ok' if diff.state == 'same' else 'error' }}">{{ diff.state }}</span></td><td>{{ 'changed' if diff.arguments_changed else 'same' }}</td><td>{{ 'changed' if diff.result_changed else 'same' }}</td><td>{{ 'changed' if diff.outcome_changed else 'same' }}</td><td>{% if diff.duration_delta_ms is not none %}{% if diff.duration_delta_ms > 0 %}+{% endif %}{{ diff.duration_delta_ms|round(1) }} ms{% else %}—{% endif %}</td></tr>{% if diff.argument_keys_changed or diff.result_keys_changed or diff.error_changed %}<tr class="diff-detail-row" data-state="{{ diff.state }}"><td></td><td colspan="7"><details class="diff-detail"><summary>Field-level delta</summary><div class="diff-detail-grid">{% if diff.argument_keys_changed %}<div><span class="field-label">Changed argument keys</span><code>{{ diff.argument_keys_changed|join(', ') }}</code></div>{% endif %}{% if diff.result_keys_changed %}<div><span class="field-label">Changed result keys</span><code>{{ diff.result_keys_changed|join(', ') }}</code></div>{% endif %}</div>{% if diff.error_changed %}<div class="failure-box"><strong>Error change</strong><span>A: {{ diff.error_a or 'none' }}</span><span>B: {{ diff.error_b or 'none' }}</span></div>{% endif %}</details></td></tr>{% endif %}{% endfor %}</tbody></table></div>
     {% if report.run_a.status == 'error' or report.run_b.status == 'error' %}<div class="failure-box compare-failure"><strong>Failure signal</strong><span>At least one compared run contains an error outcome. Open the run to inspect the recorded error.</span></div>{% endif %}
     <form id="save-comparison" class="save-comparison">
         <label for="comparison-label">Comparison label</label>

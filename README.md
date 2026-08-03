@@ -4,7 +4,7 @@ Agent Trace Workbench keeps agent-run evidence on your machine.
 
 It records local JSON traces in SQLite. It replays tool calls with deterministic handlers. It compares runs by call order, timing, results, and outcomes.
 
-Release 0.6 adds shared-database coordination. A watcher, a server, and CLI commands share one SQLite file safely.
+Release 0.7 adds richer comparison views and CSV export. Field-level deltas show which keys changed. CSV files carry comparisons and tool calls into any spreadsheet tool.
 
 ## Value
 
@@ -47,7 +47,8 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
-- `compare.py` aligns tool calls by recorded position.
+- `compare.py` aligns tool calls by recorded position and reports field-level deltas.
+- `export.py` renders comparisons and run tool calls as CSV files.
 - `main.py` serves the interface and the JSON API.
 - `telemetry.py` creates OpenTelemetry spans for local operations.
 
@@ -240,6 +241,68 @@ List, get, and delete use these API routes.
 - `GET /api/comparisons` lists saved comparisons.
 - `GET /api/comparisons/{id}` returns one saved comparison.
 - `DELETE /api/comparisons/{id}` removes one saved comparison.
+
+## Comparison detail
+
+The compare page shows counts for changed, added, removed, outcome, and error changes.
+
+Each row marks argument, result, and outcome deltas. Rows with field-level changes open to show the changed argument and result keys.
+
+The JSON report carries the same detail. This excerpt shows the new aggregate fields.
+
+```json
+{
+  "changed_tools": 2,
+  "added_tools": 1,
+  "removed_tools": 0,
+  "outcome_changed_tools": 1,
+  "error_changed_tools": 1,
+  "tool_diffs": [
+    {
+      "index": 2,
+      "state": "changed",
+      "result_changed": true,
+      "result_keys_changed": ["available"]
+    }
+  ]
+}
+```
+
+Filter the table by state with the buttons above the list. Use them to focus on added or changed calls.
+
+## CSV export
+
+Export a comparison to a CSV file.
+
+```powershell
+python -m agent_trace_workbench.cli compare run-baseline-001 run-candidate-001 --format csv
+```
+
+The command prints one row per tool position.
+
+```text
+index,state,tool_a,tool_b,arguments_changed,outcome_changed,result_changed,error_changed,duration_delta_ms,error_a,error_b,argument_keys_changed,result_keys_changed
+1,same,search_catalog,search_catalog,no,no,no,no,15.0,,,,
+2,changed,get_inventory,get_inventory,no,no,yes,no,15.0,,,,available
+3,added,,reserve_inventory,no,yes,yes,yes,,,reservation window expired,,
+```
+
+Export a run's tool calls with the export command.
+
+```powershell
+python -m agent_trace_workbench.cli export run-baseline-001 --format csv
+```
+
+The command writes `data/exports/run-baseline-001.csv`. Each row is one tool call with its arguments and result as JSON cells.
+
+The API returns both files.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/compare?run_a=run-baseline-001&run_b=run-candidate-001&format=csv"
+curl.exe -o run.csv "http://127.0.0.1:8000/api/runs/run-baseline-001/export?format=csv"
+```
+
+The compare page and the run page offer the same downloads.
 
 ## OTLP import
 
@@ -492,7 +555,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers schema validation, idempotent storage, WAL coordination, retry behavior, directory ingestion, handler config, side-effect guards, replay, comparison, search, filtering, saved comparisons, OTLP conversion, export files, CLI, and API routes.
+The test suite covers schema validation, idempotent storage, WAL coordination, retry behavior, directory ingestion, handler config, side-effect guards, replay, comparison, search, filtering, saved comparisons, OTLP conversion, export files, CSV rendering, CLI, and API routes.
 
 Run the checks with these commands.
 
@@ -502,7 +565,7 @@ ruff check .
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 91 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 102 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -534,12 +597,14 @@ The watcher uses file size and modification time. A rare same-size, same-time re
 
 OpenTelemetry spans cover workbench operations. The release does not export agent spans to a remote collector.
 
+CSV exports keep arguments and results as JSON cells. Spreadsheet tools cannot index inside those cells.
+
 ## Roadmap
 
 - Release 0.4 complete: add search, span filtering, and saved comparisons.
 - Release 0.5 complete: add OTLP import and local export files.
 - Release 0.6 complete: add coordination for shared databases.
-- Release 0.7: add richer comparison views and CSV export.
+- Release 0.7 complete: add richer comparison views and CSV export.
 - Release 0.8: export workbench spans to a local OpenTelemetry collector.
 
 ## Repository map

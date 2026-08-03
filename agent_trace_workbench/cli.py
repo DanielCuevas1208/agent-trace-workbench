@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 from .compare import compare_runs
+from .export import comparison_to_csv, run_tools_to_csv
 from .handlers import ReplayPolicy, load_handler_config
 from .ingestion import DirectoryWatcher, watch_directory
 from .models import TraceDocument
@@ -36,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
         "run_id", nargs="?", default=None, help="Run ID; omit to export every run"
     )
     export.add_argument(
-        "--format", choices=["json", "otlp"], default="json", help="File format"
+        "--format", choices=["json", "otlp", "csv"], default="json", help="File format"
     )
     export.add_argument(
         "--output", type=Path, default=None, help="Output file or directory"
@@ -65,6 +66,12 @@ def build_parser() -> argparse.ArgumentParser:
     compare = subparsers.add_parser("compare", help="Compare two recorded runs")
     compare.add_argument("run_a")
     compare.add_argument("run_b")
+    compare.add_argument(
+        "--format",
+        choices=["json", "csv"],
+        default="json",
+        help="Output format",
+    )
 
     search = subparsers.add_parser("search", help="Search recorded runs")
     search.add_argument("query")
@@ -113,10 +120,16 @@ def main() -> None:
         output = args.output or Path("data/exports")
         exported = []
         for run_id in run_ids:
-            trace = store.get_trace(run_id)
-            if trace is None:
-                raise SystemExit(f"Run not found: {run_id}")
-            path = _write_export(trace, args.format, output, single=(len(run_ids) == 1))
+            if args.format == "csv":
+                run = store.get_run(run_id)
+                if run is None:
+                    raise SystemExit(f"Run not found: {run_id}")
+                path = _write_csv_export(run, output, single=(len(run_ids) == 1))
+            else:
+                trace = store.get_trace(run_id)
+                if trace is None:
+                    raise SystemExit(f"Run not found: {run_id}")
+                path = _write_export(trace, args.format, output, single=(len(run_ids) == 1))
             exported.append({"run_id": run_id, "format": args.format, "path": str(path)})
         print(json.dumps({"exported": exported}, indent=2))
     elif args.command == "list":
@@ -141,7 +154,11 @@ def main() -> None:
         trace_b = store.get_trace(args.run_b)
         if trace_a is None or trace_b is None:
             raise SystemExit("Both run IDs must exist")
-        print(json.dumps(compare_runs(trace_a, trace_b).as_dict(), indent=2))
+        report = compare_runs(trace_a, trace_b)
+        if args.format == "csv":
+            print(comparison_to_csv(report), end="")
+        else:
+            print(json.dumps(report.as_dict(), indent=2))
     elif args.command == "search":
         print(json.dumps(store.search_runs(args.query, args.limit), indent=2))
     elif args.command == "comparisons":
@@ -165,6 +182,19 @@ def _run_summary(run: dict[str, object]) -> dict[str, object]:
         "tool_count": run["tool_count"],
         "source_name": run["source_name"],
     }
+
+
+def _write_csv_export(run: dict[str, object], output: Path, *, single: bool) -> Path:
+    suffix = ".csv"
+    filename = f"{_safe_filename(str(run['run_id']))}{suffix}"
+    if single and not _looks_like_directory(output, suffix):
+        target = output
+        target.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        target = output / filename
+        output.mkdir(parents=True, exist_ok=True)
+    target.write_text(run_tools_to_csv(run), encoding="utf-8")
+    return target
 
 
 def _write_export(
