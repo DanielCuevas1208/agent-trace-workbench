@@ -38,6 +38,8 @@ jobs:
         run: ruff check .
       - name: Smoke test the CLI
         run: python -m agent_trace_workbench.cli --help
+      - name: Verify telemetry configuration
+        run: python -m agent_trace_workbench.cli telemetry
       - name: Run tests
         run: python -m pytest
       - name: Compile Python files

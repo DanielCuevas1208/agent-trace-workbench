@@ -16,6 +16,7 @@
         <nav aria-label="Primary navigation">
             <a href="/">Runs</a>
             <a href="/compare">Compare</a>
+            <a href="/telemetry">Telemetry</a>
             <a class="nav-api" href="/docs">API docs</a>
         </nav>
     </header>
@@ -26,6 +27,7 @@
         <span>Local by design.</span>
         <span>Trace data stays in your SQLite file.</span>
         {% if store %}<span class="store-status">{{ store.journal_mode }} journal · busy {{ store.busy_timeout_ms }} ms · SQLite {{ store.sqlite_version }}</span>{% endif %}
+        <span class="store-status">otel {% if telemetry and telemetry.otlp_exporter %}→ {{ telemetry.otlp_endpoint }}{% else %}off{% endif %}</span>
     </footer>
 </body>
 </html>

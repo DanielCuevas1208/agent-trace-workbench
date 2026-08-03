@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Telemetry | Agent Trace Workbench{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/">Runs</a><span>/</span><span>Telemetry</span></div>
+<section class="detail-hero">
+    <div>
+        <div class="eyebrow">LOCAL TELEMETRY / RELEASE 0.8</div>
+        <h1>Export workbench spans.</h1>
+        <p class="hero-copy">Send local operation spans to a collector you control. Nothing leaves the machine unless you choose an endpoint.</p>
+    </div>
+    <div class="detail-actions"><a class="button button-quiet" href="/docs">API docs</a></div>
+</section>
+<section class="metric-grid detail-metrics">
+    <div class="metric-card"><span class="metric-label">Service</span><strong class="metric-code">{{ telemetry.service_name }}</strong><span class="metric-note">version {{ telemetry.version }}</span></div>
+    <div class="metric-card {% if telemetry.console_exporter %}metric-alert{% endif %}"><span class="metric-label">Console exporter</span><strong>{% if telemetry.console_exporter %}on{% else %}off{% endif %}</strong><span class="metric-note">ATW_OTEL_CONSOLE=1</span></div>
+    <div class="metric-card {% if telemetry.otlp_exporter %}metric-alert{% endif %}"><span class="metric-label">OTLP exporter</span><strong>{% if telemetry.otlp_exporter %}on{% else %}off{% endif %}</strong><span class="metric-note">local collector</span></div>
+</section>
+<section class="section-block">
+    <div class="section-heading"><div><div class="eyebrow">ACTIVE CONFIGURATION</div><h2>Where spans go</h2></div><span class="section-meta">read at server start</span></div>
+    {% if telemetry.otlp_exporter %}
+    <div class="table-wrap"><table><thead><tr><th>Setting</th><th>Value</th></tr></thead><tbody><tr><td class="mono">OTLP endpoint</td><td class="mono">{{ telemetry.otlp_endpoint }}</td></tr><tr><td class="mono">Console exporter</td><td>{{ 'enabled' if telemetry.console_exporter else 'disabled' }}</td></tr></tbody></table></div>
+    {% else %}
+    <div class="empty-state"><span class="empty-mark">OTLP</span><h3>Export is off</h3><p>Set ATW_OTEL_OTLP_ENDPOINT to a local collector to enable export.</p><code>uvicorn agent_trace_workbench.main:app</code></div>
+    {% endif %}
+    <div class="code-hint"><span>COLLECTOR</span><code>OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318</code></div>
+</section>
+{% endblock %}

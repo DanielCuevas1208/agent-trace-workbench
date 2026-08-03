@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import asynccontextmanager
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,7 @@ from .models import ComparisonCreate, TraceDocument
 from .otlp import parse_otlp_json, trace_to_otlp_json
 from .replay import ReplayEngine, default_replay_engine
 from .storage import TraceStore
-from .telemetry import configure_telemetry
+from .telemetry import configure_telemetry, shutdown_telemetry, telemetry_info
 
 ROOT = Path(__file__).resolve().parent.parent
 try:
@@ -29,13 +30,22 @@ except AssertionError:  # pragma: no cover - only used when Jinja2 is absent off
     templates = None
 
 
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Flush pending spans when the local server stops."""
+    yield
+    shutdown_telemetry()
+
+
 def create_app(db_path: str | Path | None = None) -> FastAPI:
     """Create an isolated application instance for production or tests."""
 
     configure_telemetry()
     database_path = db_path or os.getenv("ATW_DB_PATH", "data/workbench.db")
     busy_timeout_ms = _env_int("ATW_DB_BUSY_TIMEOUT_MS", 5000)
-    app = FastAPI(title="Agent Trace Workbench", version="0.7.0")
+    app = FastAPI(
+        title="Agent Trace Workbench", version="0.8.0", lifespan=_lifespan
+    )
     app.state.store = TraceStore(database_path, busy_timeout_ms=busy_timeout_ms)
     app.state.replay_engine = _build_replay_engine()
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
@@ -109,6 +119,14 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         }
         return render_template(request, "compare.html", context)
 
+    @app.get("/telemetry", response_class=HTMLResponse)
+    def telemetry_page(request: Request) -> Any:
+        return render_template(
+            request,
+            "telemetry.html",
+            {"telemetry": telemetry_info(), "store": app.state.store.store_info()},
+        )
+
     @app.get("/api/runs")
     def api_runs(
         limit: int = Query(default=20, ge=1, le=100),
@@ -121,6 +139,10 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/store")
     def api_store() -> dict[str, Any]:
         return app.state.store.store_info()
+
+    @app.get("/api/telemetry")
+    def api_telemetry() -> dict[str, Any]:
+        return telemetry_info()
 
     @app.get("/api/runs/{run_id}")
     def api_run(
@@ -255,6 +277,7 @@ def _build_replay_engine() -> ReplayEngine:
 def render_template(request: Request, name: str, context: dict[str, Any]) -> HTMLResponse:
     """Render the polished template or a small offline fallback."""
 
+    context["telemetry"] = telemetry_info()
     if templates is not None:
         return templates.TemplateResponse(request=request, name=name, context=context)
     return HTMLResponse(_fallback_html(name, context))
@@ -277,6 +300,13 @@ def _fallback_html(name: str, context: dict[str, Any]) -> str:
     if name == "replay.html":
         report = escape(str(context["report"]))
         return f"<html><body><h1>Replay report</h1><pre>{report}</pre></body></html>"
+    if name == "telemetry.html":
+        telemetry = context.get("telemetry", {})
+        exporter = "otlp" if telemetry.get("otlp_exporter") else "console"
+        return (
+            f"<html><body><h1>Telemetry</h1>"
+            f"<p>exporter: {escape(exporter)}</p></body></html>"
+        )
     return "<html><body><h1>Compare runs</h1></body></html>"
 
 
