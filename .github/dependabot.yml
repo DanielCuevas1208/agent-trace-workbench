@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      opentelemetry:
+        patterns:
+          - "opentelemetry-*"
+      runtime:
+        patterns:
+          - "fastapi"
+          - "pydantic"
+          - "uvicorn"
+          - "jinja2"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "chore(ci)"

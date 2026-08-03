@@ -2,9 +2,9 @@
 {% block title %}Runs | Agent Trace Workbench{% endblock %}
 {% block content %}
 <section class="hero">
-    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 0.7</div>
+    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 0.8</div>
     <h1>See what your agent did.<br><em>Replay why it did it.</em></h1>
-    <p class="hero-copy">Ingest local JSON traces, import OTLP exports, watch a folder, inspect every tool boundary, replay recorded work, and compare runs without a hosted service.</p>
+    <p class="hero-copy">Ingest local JSON traces, import OTLP exports, watch a folder, inspect every tool boundary, replay recorded work, compare runs, and send runs to a local collector without a hosted service.</p>
     <div class="hero-actions">
         <a class="button button-primary" href="#ingest">Ingest a trace <span aria-hidden="true">&#8594;</span></a>
         <a class="button button-quiet" href="/compare">Compare runs</a>
@@ -42,7 +42,7 @@
             <a href="#recent-runs"><span class="view-number">B</span><span><strong>Replay</strong><small>Stable handlers or recorded fallback</small></span><span class="view-arrow">&#8599;</span></a>
             <a href="/compare"><span class="view-number">C</span><span><strong>Compare</strong><small>Calls, timing, results, and outcomes</small></span><span class="view-arrow">&#8599;</span></a>
         </div>
-        <div class="architecture-line"><span class="dot"></span>FastAPI <span class="line"></span> SQLite <span class="line"></span> OpenTelemetry</div>
+        <div class="architecture-line"><span class="dot"></span>FastAPI <span class="line"></span> SQLite <span class="line"></span> OpenTelemetry <span class="line"></span> Local collector</div>
     </div>
 </section>
 

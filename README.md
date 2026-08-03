@@ -4,7 +4,7 @@ Agent Trace Workbench keeps agent-run evidence on your machine.
 
 It records local JSON traces in SQLite. It replays tool calls with deterministic handlers. It compares runs by call order, timing, results, and outcomes.
 
-Release 0.7 adds richer comparison views and CSV export. Field-level deltas show which keys changed. CSV files carry comparisons and tool calls into any spreadsheet tool.
+Release 0.8 adds local OpenTelemetry collector export. Send workbench spans or a recorded run to a local collector over OTLP HTTP JSON. The data stays on your machine.
 
 ## Value
 
@@ -34,9 +34,14 @@ Import the OpenTelemetry JSON format to bring agent traces in. Export runs to po
                               |                   |  ^
                               v                   v  |
                     handler config + guard    saved comparisons
-                                                      |
-                                                      v
-                                                local export files
+                                                    |
+                                                    v
+                                              local export files
+                                                    |
+                                                    +---> OTLP HTTP JSON
+                                                                  |
+                                                                  v
+                                            local OpenTelemetry collector
 ```
 
 SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. Writers wait for the write lock.
@@ -49,10 +54,11 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 - `replay.py` runs guarded local handlers and records mismatches.
 - `compare.py` aligns tool calls by recorded position and reports field-level deltas.
 - `export.py` renders comparisons and run tool calls as CSV files.
+- `collector.py` posts recorded runs to a local collector over OTLP HTTP JSON.
 - `main.py` serves the interface and the JSON API.
-- `telemetry.py` creates OpenTelemetry spans for local operations.
+- `telemetry.py` creates OpenTelemetry spans and exports them locally.
 
-The OpenTelemetry integration stays local by default. Set `ATW_OTEL_CONSOLE=1` to print workbench spans.
+The OpenTelemetry integration stays local by default. Set `ATW_OTEL_CONSOLE=1` to print workbench spans. Set `ATW_OTEL_COLLECTOR_ENDPOINT` to export them to a local collector.
 
 ## Setup
 
@@ -398,6 +404,60 @@ curl.exe -o run.otlp.json http://127.0.0.1:8000/api/runs/run-baseline-001/export
 
 The run page offers the same downloads.
 
+## Collector export
+
+Send a recorded run to a local OpenTelemetry collector. Use Jaeger, Tempo, or the OpenTelemetry Collector. The run appears with its spans in that tool.
+
+Point the server at a local collector.
+
+```powershell
+$env:ATW_OTEL_COLLECTOR_ENDPOINT = "http://127.0.0.1:4318"
+uvicorn agent_trace_workbench.main:app
+```
+
+Workbench operation spans export to that endpoint. The page footer shows the active endpoint.
+
+Publish a run from the command line.
+
+```powershell
+python -m agent_trace_workbench.cli publish run-baseline-001 --endpoint http://127.0.0.1:4318
+```
+
+The command posts the OTLP JSON encoding to `{endpoint}/v1/traces`.
+
+```json
+{
+  "endpoint": "http://127.0.0.1:4318",
+  "exported_runs": [
+    {
+      "run_id": "run-baseline-001",
+      "status": "accepted",
+      "span_count": 4,
+      "endpoint": "http://127.0.0.1:4318",
+      "detail": null
+    }
+  ]
+}
+```
+
+Publish every run by omitting the run ID.
+
+```powershell
+python -m agent_trace_workbench.cli publish --endpoint http://127.0.0.1:4318
+```
+
+Send one run from the API.
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/api/runs/run-baseline-001/export/collector `
+  -H "content-type: application/json" `
+  -d "{\"endpoint\": \"http://127.0.0.1:4318\"}"
+```
+
+The run page offers the same action. The button posts the run and shows the outcome.
+
+A failed export keeps the report. It reports the HTTP status or the connection error. The workbench retries a request up to three times. The endpoint may omit the scheme. The workbench adds `http://` when needed.
+
 ## Shared database
 
 One SQLite file can serve a watcher, a server, and a CLI command at once.
@@ -555,7 +615,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers schema validation, idempotent storage, WAL coordination, retry behavior, directory ingestion, handler config, side-effect guards, replay, comparison, search, filtering, saved comparisons, OTLP conversion, export files, CSV rendering, CLI, and API routes.
+The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, and export. It covers the CLI, the API, and collector export.
 
 Run the checks with these commands.
 
@@ -565,7 +625,7 @@ ruff check .
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 102 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 125 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -595,9 +655,17 @@ The watcher scans one directory level. It does not recurse into child directorie
 
 The watcher uses file size and modification time. A rare same-size, same-time rewrite may wait for the next change.
 
-OpenTelemetry spans cover workbench operations. The release does not export agent spans to a remote collector.
+OpenTelemetry spans cover workbench operations. Recorded agent runs export on demand only. The release does not push agent data to a remote collector automatically.
 
 CSV exports keep arguments and results as JSON cells. Spreadsheet tools cannot index inside those cells.
+
+Workbench spans export only when you set `ATW_OTEL_CONSOLE` or `ATW_OTEL_COLLECTOR_ENDPOINT`.
+
+Collector export uses the OTLP HTTP JSON encoding. It does not use gRPC.
+
+The collector export sends over plain HTTP. It does not use TLS or authentication.
+
+The span exporter sends each workbench span as it ends. It does not batch spans.
 
 ## Roadmap
 
@@ -605,13 +673,14 @@ CSV exports keep arguments and results as JSON cells. Spreadsheet tools cannot i
 - Release 0.5 complete: add OTLP import and local export files.
 - Release 0.6 complete: add coordination for shared databases.
 - Release 0.7 complete: add richer comparison views and CSV export.
-- Release 0.8: export workbench spans to a local OpenTelemetry collector.
+- Release 0.8 complete: export workbench spans to a local OpenTelemetry collector.
+- Release 0.9: add run labels and notes for long-lived evidence review.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline and candidate traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic tests for the core, shared-database coordination, guards, search, OTLP, export, CLI, and API.
+`tests/` contains deterministic tests for the core. It covers coordination, guards, search, OTLP, export, and collector export.
 
 `static/` and `templates/` contain the presentation layer.
 

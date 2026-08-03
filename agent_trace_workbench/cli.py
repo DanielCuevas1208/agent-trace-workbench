@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from pathlib import Path
 
+from .collector import export_run_to_collector
 from .compare import compare_runs
 from .export import comparison_to_csv, run_tools_to_csv
 from .handlers import ReplayPolicy, load_handler_config
@@ -41,6 +43,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     export.add_argument(
         "--output", type=Path, default=None, help="Output file or directory"
+    )
+
+    publish = subparsers.add_parser(
+        "publish", help="Send recorded runs to a local collector"
+    )
+    publish.add_argument(
+        "run_id",
+        nargs="?",
+        default=None,
+        help="Run ID; omit to send every run",
+    )
+    publish.add_argument(
+        "--endpoint",
+        default=None,
+        help="Collector OTLP/HTTP endpoint (default: ATW_OTEL_COLLECTOR_ENDPOINT)",
     )
 
     list_parser = subparsers.add_parser("list", help="List recent runs")
@@ -132,6 +149,20 @@ def main() -> None:
                 path = _write_export(trace, args.format, output, single=(len(run_ids) == 1))
             exported.append({"run_id": run_id, "format": args.format, "path": str(path)})
         print(json.dumps({"exported": exported}, indent=2))
+    elif args.command == "publish":
+        endpoint = args.endpoint or os.getenv("ATW_OTEL_COLLECTOR_ENDPOINT")
+        if not endpoint:
+            raise SystemExit("Set --endpoint or ATW_OTEL_COLLECTOR_ENDPOINT")
+        run_ids = [args.run_id] if args.run_id else store.list_run_ids()
+        if not run_ids:
+            raise SystemExit("No runs to publish")
+        reports = []
+        for run_id in run_ids:
+            trace = store.get_trace(run_id)
+            if trace is None:
+                raise SystemExit(f"Run not found: {run_id}")
+            reports.append(export_run_to_collector(trace, endpoint).as_dict())
+        print(json.dumps({"endpoint": endpoint, "exported_runs": reports}, indent=2))
     elif args.command == "list":
         print(json.dumps(store.list_runs(args.limit), indent=2))
     elif args.command == "store":
