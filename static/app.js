@@ -61,4 +61,22 @@
             if (response.ok) window.location.reload();
         });
     });
+
+    const stateFilter = document.querySelector(".state-filter");
+    if (stateFilter) {
+        const chips = stateFilter.querySelectorAll(".chip");
+        const applyFilter = (state) => {
+            chips.forEach((chip) => {
+                const active = chip.dataset.state === state;
+                chip.classList.toggle("chip-active", active);
+                chip.setAttribute("aria-pressed", active ? "true" : "false");
+            });
+            document.querySelectorAll("[data-state]").forEach((row) => {
+                row.hidden = state !== "all" && row.dataset.state !== state;
+            });
+        };
+        chips.forEach((chip) => {
+            chip.addEventListener("click", () => applyFilter(chip.dataset.state));
+        });
+    }
 })();

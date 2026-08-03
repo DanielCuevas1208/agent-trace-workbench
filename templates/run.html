@@ -13,6 +13,7 @@
         <div class="export-actions" aria-label="Export run">
             <a class="button button-quiet" href="/api/runs/{{ run.run_id }}/export?format=json" download>JSON</a>
             <a class="button button-quiet" href="/api/runs/{{ run.run_id }}/export?format=otlp" download>OTLP</a>
+            <a class="button button-quiet" href="/api/runs/{{ run.run_id }}/export?format=csv" download>CSV</a>
         </div>
         <a class="button button-primary" href="/runs/{{ run.run_id }}/replay">Replay run <span aria-hidden="true">&#8594;</span></a>
     </div>

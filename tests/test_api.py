@@ -43,3 +43,21 @@ def test_api_applies_environment_handler_config(tmp_path, candidate, monkeypatch
     assert report["policy"] == "strict"
     assert report["guarded_steps"] == 1
     assert report["steps"][-1]["mode"] == "guarded"
+
+
+def test_compare_page_shows_richer_views_and_csv_link(tmp_path, baseline, candidate):
+    client = TestClient(create_app(tmp_path / "api.db"))
+    client.post("/api/traces", json=baseline.as_jsonable())
+    client.post("/api/traces", json=candidate.as_jsonable())
+
+    response = client.get(
+        "/compare", params={"run_a": "run-baseline-001", "run_b": "run-candidate-001"}
+    )
+
+    assert response.status_code == 200
+    page = response.text
+    assert "Field-level delta" in page
+    assert "Outcome changes" in page
+    assert "state-filter" in page
+    assert "format=csv" in page
+    assert "available" in page

@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .compare import compare_runs
+from .export import comparison_to_csv, run_tools_to_csv
 from .handlers import ReplayPolicy, load_handler_config
 from .models import ComparisonCreate, TraceDocument
 from .otlp import parse_otlp_json, trace_to_otlp_json
@@ -34,7 +35,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     configure_telemetry()
     database_path = db_path or os.getenv("ATW_DB_PATH", "data/workbench.db")
     busy_timeout_ms = _env_int("ATW_DB_BUSY_TIMEOUT_MS", 5000)
-    app = FastAPI(title="Agent Trace Workbench", version="0.6.0")
+    app = FastAPI(title="Agent Trace Workbench", version="0.7.0")
     app.state.store = TraceStore(database_path, busy_timeout_ms=busy_timeout_ms)
     app.state.replay_engine = _build_replay_engine()
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
@@ -158,19 +159,20 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         if export_format == "otlp":
             payload = trace_to_otlp_json(trace)
             filename = f"{run_id}.otlp.json"
+            media_type = "application/json"
         elif export_format == "json":
             payload = trace.as_jsonable()
             filename = f"{run_id}.json"
+            media_type = "application/json"
+        elif export_format == "csv":
+            content = run_tools_to_csv(_get_run_or_404(app.state.store, run_id))
+            return _download_response(content, f"{run_id}.csv", "text/csv; charset=utf-8")
         else:
             raise HTTPException(
-                status_code=400, detail="format must be 'json' or 'otlp'"
+                status_code=400, detail="format must be 'json', 'otlp', or 'csv'"
             )
         content = json.dumps(payload, indent=2, default=str)
-        return Response(
-            content=content,
-            media_type="application/json",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
+        return _download_response(content, filename, media_type)
 
     @app.get("/api/runs/{run_id}/replay")
     def api_replay(run_id: str) -> dict[str, Any]:
@@ -178,10 +180,22 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         return app.state.replay_engine.replay(trace).as_dict()
 
     @app.get("/api/compare")
-    def api_compare(run_a: str, run_b: str) -> dict[str, Any]:
+    def api_compare(
+        run_a: str,
+        run_b: str,
+        export_format: str = Query(default="json", alias="format"),
+    ) -> Response:
         trace_a = _get_trace_or_404(app.state.store, run_a)
         trace_b = _get_trace_or_404(app.state.store, run_b)
-        return compare_runs(trace_a, trace_b).as_dict()
+        report = compare_runs(trace_a, trace_b)
+        if export_format == "csv":
+            content = comparison_to_csv(report)
+            filename = f"compare-{run_a}-vs-{run_b}.csv"
+            return _download_response(content, filename, "text/csv; charset=utf-8")
+        if export_format != "json":
+            raise HTTPException(status_code=400, detail="format must be 'json' or 'csv'")
+        payload = json.dumps(report.as_dict(), indent=2)
+        return Response(content=payload, media_type="application/json")
 
     @app.get("/api/comparisons")
     def api_list_comparisons(
@@ -278,6 +292,15 @@ def _get_trace_or_404(store: TraceStore, run_id: str) -> TraceDocument:
     if trace is None:
         raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
     return trace
+
+
+def _download_response(content: str, filename: str, media_type: str) -> Response:
+    """Wrap export text as an attachment download."""
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _stats(runs: list[dict[str, Any]]) -> dict[str, int]:
