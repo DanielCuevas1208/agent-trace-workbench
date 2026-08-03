@@ -9,6 +9,7 @@
         <p class="hero-copy">{{ run.run_id }} · {{ run.agent_version }} · {{ run.source_name }}</p>
     </div>
     <div class="detail-actions">
+        {% if run.label %}<span class="badge badge-label">{{ run.label }}</span>{% endif %}
         <span class="badge badge-{{ run.status }}">{{ run.status }}</span>
         <div class="export-actions" aria-label="Export run">
             <a class="button button-quiet" href="/api/runs/{{ run.run_id }}/export?format=json" download>JSON</a>
@@ -24,6 +25,24 @@
     <div class="metric-card"><span class="metric-label">Run duration</span><strong>{{ run.duration_ms|round(1) }}<small> ms</small></strong><span class="metric-note">wall-clock span</span></div>
     <div class="metric-card"><span class="metric-label">Tool calls</span><strong>{{ run.tool_count }}</strong><span class="metric-note">ordered by sequence</span></div>
     <div class="metric-card"><span class="metric-label">Trace ID</span><strong class="metric-code">{{ run.trace_id }}</strong><span class="metric-note">portable identity</span></div>
+</section>
+<section class="panel annotation-panel">
+    <div class="panel-heading">
+        <div><div class="eyebrow">REVIEW ANNOTATIONS</div><h2>Label and notes</h2></div>
+        <span class="panel-index">LOCAL</span>
+    </div>
+    <p>Attach a short label and review notes to this run. They stay in the local database and survive re-ingestion.</p>
+    {% if run.note %}<div class="review-note"><strong>Note</strong><span>{{ run.note }}</span></div>{% endif %}
+    <form id="annotations-form" data-run="{{ run.run_id }}">
+        <label for="annotation-label">Label</label>
+        <input id="annotation-label" name="label" maxlength="80" value="{{ run.label or '' }}" placeholder="e.g. v1, regression, release candidate">
+        <label for="annotation-note">Note</label>
+        <textarea id="annotation-note" name="note" maxlength="2000" placeholder="What did this run show? Keep evidence for a later review.">{{ run.note or '' }}</textarea>
+        <div class="form-row">
+            <button class="button button-primary" type="submit">Save annotations <span aria-hidden="true">&#8594;</span></button>
+            <span id="annotation-status" class="form-status" role="status"></span>
+        </div>
+    </form>
 </section>
 <section class="section-block trace-section">
     <div class="section-heading"><div><div class="eyebrow">TRACE WATERFALL</div><h2>Recorded activity</h2></div><span class="section-meta">{{ run.spans|length }} spans</span></div>

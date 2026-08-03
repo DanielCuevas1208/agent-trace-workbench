@@ -4,6 +4,7 @@ import pytest
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
+from agent_trace_workbench import __version__
 from agent_trace_workbench.telemetry import OtlpJsonSpanExporter, configure_telemetry
 
 
@@ -32,7 +33,7 @@ def test_exporter_posts_spans_as_otlp_json(collector_server):
     resource = payload["resourceSpans"][0]["resource"]["attributes"]
     by_key = {item["key"]: item["value"] for item in resource}
     assert by_key["service.name"]["stringValue"] == "agent-trace-workbench"
-    assert by_key["service.version"]["stringValue"] == "0.8.0"
+    assert by_key["service.version"]["stringValue"] == __version__
     spans = payload["resourceSpans"][0]["scopeSpans"][0]["spans"]
     assert spans[0]["name"] == "storage.ingest"
     assert len(spans[0]["traceId"]) == 32

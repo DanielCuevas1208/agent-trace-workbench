@@ -100,6 +100,16 @@ select { min-height: 44px; padding: 0 12px; font-family: inherit; }
 .badge-ok { color: var(--teal); background: rgba(30,139,132,.06); }
 .badge-error { color: var(--coral); background: rgba(217,95,79,.06); }
 .badge-unset { color: var(--muted); }
+.badge-label { color: var(--blue); border-color: var(--blue); background: rgba(44,111,159,.08); }
+.run-card h3 .badge-label { margin-left: 9px; vertical-align: 3px; }
+.annotation-panel { margin-top: 18px; }
+.annotation-panel p { max-width: 640px; }
+.annotation-panel input, .annotation-panel textarea { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); background: #fbfcfa; color: var(--ink); font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; outline: 0; }
+.annotation-panel textarea { min-height: 108px; padding: 12px; resize: vertical; }
+.annotation-panel input:focus, .annotation-panel textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(44,111,159,.12); }
+.annotation-panel .form-row { margin-top: 16px; }
+.review-note { display: flex; flex-direction: column; gap: 5px; margin-top: 14px; padding: 13px; border-left: 3px solid var(--blue); background: rgba(44,111,159,.06); color: var(--navy); font-size: 13px; line-height: 1.55; }
+.review-note strong { font: 800 9px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .1em; text-transform: uppercase; }
 .trace-section { padding-top: 62px; }
 .trace-list, .replay-list { border-top: 1px solid var(--line); }
 .trace-row { display: grid; grid-template-columns: 27px 1fr; gap: 12px; padding: 20px 0 25px; }

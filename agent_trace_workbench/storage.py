@@ -4,6 +4,10 @@ The store coordinates local readers and writers on one database file.
 It enables the WAL journal so readers keep a committed snapshot while a
 writer is active. It sets a busy timeout so writers wait for the write
 lock instead of failing on first contact.
+
+The store also keeps local review annotations beside each run. A label
+and a note stay in the runs table. They survive re-ingestion and never
+enter the portable trace contract.
 """
 
 from __future__ import annotations
@@ -23,6 +27,12 @@ _T = TypeVar("_T")
 _SYNCHRONOUS_LABELS = {0: "off", 1: "normal", 2: "full", 3: "extra"}
 _LOCK_ERROR_HINT = "database is locked"
 
+_ANNOTATION_MAX = {"label": 80, "note": 2000}
+_ANNOTATION_COLUMNS = {
+    "label": "label TEXT NOT NULL DEFAULT ''",
+    "note": "note TEXT NOT NULL DEFAULT ''",
+}
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY,
@@ -36,7 +46,9 @@ CREATE TABLE IF NOT EXISTS runs (
     source_name TEXT NOT NULL,
     metadata_json TEXT NOT NULL,
     raw_json TEXT NOT NULL,
-    ingested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ingested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    label TEXT NOT NULL DEFAULT '',
+    note TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS spans (
@@ -104,6 +116,29 @@ class TraceStore:
         with traced_operation("storage.initialize", {"db.path": self.db_path.name}):
             with self._connect() as connection:
                 connection.executescript(SCHEMA)
+            self._ensure_annotations_columns()
+
+    def _ensure_annotations_columns(self) -> None:
+        """Add annotation columns to runs tables created before release 0.9.
+
+        A database from an earlier release has a runs table without the
+        local label and note columns. This migration extends that table in
+        place so existing evidence stays readable. Two processes may run
+        the migration at once, so a duplicate column error counts as done.
+        """
+
+        with self._connect() as connection:
+            existing = {
+                row["name"] for row in connection.execute("PRAGMA table_info(runs)")
+            }
+            for column, definition in _ANNOTATION_COLUMNS.items():
+                if column in existing:
+                    continue
+                try:
+                    connection.execute(f"ALTER TABLE runs ADD COLUMN {definition}")
+                except sqlite3.OperationalError as error:
+                    if "duplicate column" not in str(error).lower():
+                        raise
 
     def store_info(self) -> dict[str, Any]:
         """Return the concurrency settings of the local database."""
@@ -237,12 +272,13 @@ class TraceStore:
                        OR r.trace_id LIKE ? ESCAPE '!'
                        OR r.agent_name LIKE ? ESCAPE '!'
                        OR r.source_name LIKE ? ESCAPE '!'
+                       OR r.label LIKE ? ESCAPE '!'
                        OR s.name LIKE ? ESCAPE '!'
                        OR s.tool_name LIKE ? ESCAPE '!'
                     ORDER BY r.started_at DESC, r.run_id DESC
                     LIMIT ?
                     """,
-                    (pattern, pattern, pattern, pattern, pattern, pattern, safe_limit),
+                    (pattern, pattern, pattern, pattern, pattern, pattern, pattern, safe_limit),
                 ).fetchall()
                 return _summarize_runs(connection, rows)
 
@@ -295,6 +331,45 @@ class TraceStore:
                 "SELECT raw_json FROM runs WHERE run_id = ?", (run_id,)
             ).fetchone()
         return TraceDocument.model_validate_json(row["raw_json"]) if row else None
+
+    def update_annotations(
+        self,
+        run_id: str,
+        *,
+        label: str | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Set the local label and review notes for one run.
+
+        A None value leaves the current annotation untouched. An empty
+        string clears it. The method returns the updated run, or None when
+        the run does not exist.
+        """
+
+        if label is None and note is None:
+            raise ValueError("Provide a label, a note, or both")
+        for name, value in (("label", label), ("note", note)):
+            if value is not None and len(value) > _ANNOTATION_MAX[name]:
+                raise ValueError(f"{name} must be at most {_ANNOTATION_MAX[name]} characters")
+        with traced_operation("storage.update_annotations", {"run.id": run_id}):
+
+            def _update() -> bool:
+                with self._connect() as connection:
+                    sets: list[str] = []
+                    values: list[Any] = []
+                    for column, value in (("label", label), ("note", note)):
+                        if value is not None:
+                            sets.append(f"{column} = ?")
+                            values.append(value)
+                    values.append(run_id)
+                    cursor = connection.execute(
+                        f"UPDATE runs SET {', '.join(sets)} WHERE run_id = ?", values
+                    )
+                    return cursor.rowcount > 0
+
+            if not _retry_on_lock(_update):
+                return None
+            return self.get_run(run_id)
 
     def save_comparison(
         self,
@@ -419,6 +494,8 @@ def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         "source_name": row["source_name"],
         "metadata": json.loads(row["metadata_json"]),
         "ingested_at": row["ingested_at"],
+        "label": row["label"],
+        "note": row["note"],
     }
 
 

@@ -2,9 +2,9 @@
 {% block title %}Runs | Agent Trace Workbench{% endblock %}
 {% block content %}
 <section class="hero">
-    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 0.8</div>
+    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 0.9</div>
     <h1>See what your agent did.<br><em>Replay why it did it.</em></h1>
-    <p class="hero-copy">Ingest local JSON traces, import OTLP exports, watch a folder, inspect every tool boundary, replay recorded work, compare runs, and send runs to a local collector without a hosted service.</p>
+    <p class="hero-copy">Ingest local JSON traces, import OTLP exports, watch a folder, inspect every tool boundary, replay recorded work, compare runs, and label evidence for a later review without a hosted service.</p>
     <div class="hero-actions">
         <a class="button button-primary" href="#ingest">Ingest a trace <span aria-hidden="true">&#8594;</span></a>
         <a class="button button-quiet" href="/compare">Compare runs</a>
@@ -59,7 +59,7 @@
         {% for run in runs %}
         <a class="run-card" href="/runs/{{ run.run_id }}">
             <div class="run-card-top"><span class="status-dot status-{{ run.status }}"></span><span class="status-text">{{ run.status }}</span><span class="run-duration">{{ run.duration_ms|round(1) }} ms</span></div>
-            <h3>{{ run.agent_name }}</h3>
+            <h3>{{ run.agent_name }}{% if run.label %} <span class="badge badge-label">{{ run.label }}</span>{% endif %}</h3>
             <p class="run-id">{{ run.run_id }}</p>
             <div class="run-card-bottom"><span>{{ run.tool_count }} tool calls</span><span>{{ run.source_name }}</span></div>
         </a>

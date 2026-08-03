@@ -101,4 +101,34 @@
             }
         });
     }
+
+    const annotationsForm = document.querySelector("#annotations-form");
+    if (annotationsForm) {
+        const status = document.querySelector("#annotation-status");
+        annotationsForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            status.className = "form-status";
+            status.textContent = "Saving...";
+            try {
+                const data = new FormData(annotationsForm);
+                const response = await fetch(
+                    `/api/runs/${encodeURIComponent(annotationsForm.dataset.run)}/annotations`,
+                    {
+                        method: "PATCH",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({
+                            label: String(data.get("label") || ""),
+                            note: String(data.get("note") || ""),
+                        }),
+                    },
+                );
+                if (!response.ok) throw new Error("Annotations could not be saved.");
+                status.textContent = "Saved.";
+                window.location.reload();
+            } catch (error) {
+                status.className = "form-status error";
+                status.textContent = error.message;
+            }
+        });
+    }
 })();
