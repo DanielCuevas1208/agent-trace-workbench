@@ -151,3 +151,22 @@ class CollectorExportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     endpoint: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class RunAnnotations(BaseModel):
+    """Request body for updating the local label and notes on one run.
+
+    A missing field leaves the current value untouched. An empty string
+    clears it. The document requires at least one field.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str | None = Field(default=None, max_length=80)
+    note: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_present(self) -> RunAnnotations:
+        if self.label is None and self.note is None:
+            raise ValueError("Provide a label, a note, or both")
+        return self

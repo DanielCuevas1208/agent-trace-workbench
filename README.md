@@ -6,6 +6,8 @@ It records local JSON traces in SQLite. It replays tool calls with deterministic
 
 Release 0.8 adds local OpenTelemetry collector export. Send workbench spans or a recorded run to a local collector over OTLP HTTP JSON. The data stays on your machine.
 
+Release 0.9 adds run labels and review notes. Attach context to each run in the local database. The context survives re-ingestion and never leaves your machine.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -48,7 +50,7 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 - `models.py` defines the portable trace contract.
 - `handlers.py` loads local handler config and applies side-effect guards.
-- `storage.py` owns the SQLite schema, WAL coordination, and idempotent ingestion.
+- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
@@ -60,6 +62,8 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 The OpenTelemetry integration stays local by default. Set `ATW_OTEL_CONSOLE=1` to print workbench spans. Set `ATW_OTEL_COLLECTOR_ENDPOINT` to export them to a local collector.
 
+Each stored run keeps a local label and note. They form the review context for long-lived evidence.
+
 ## Setup
 
 Use Python 3.11 or newer.
@@ -70,7 +74,7 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-`requirements.lock` pins application and verification dependencies.
+`requirements.txt` pins the application and verification dependencies.
 
 ## Run the sample
 
@@ -183,7 +187,7 @@ The JSON API accepts the same search.
 curl.exe "http://127.0.0.1:8000/api/runs?q=get_inventory"
 ```
 
-Search matches partial text. It escapes `%`, `_`, and `!` in your query.
+Search matches partial text. It also matches a run label. It escapes `%`, `_`, and `!` in your query.
 
 ## Span filtering
 
@@ -593,6 +597,44 @@ python -m agent_trace_workbench.cli replay run-candidate-001 --config fixtures/h
 
 The reservation handler now runs. It returns the fixed confirmation. The guard clears, and the result no longer matches.
 
+## Run labels and notes
+
+Attach a label and notes to a run for later review. The data stays beside the run in the local database.
+
+```powershell
+python -m agent_trace_workbench.cli annotate run-baseline-001 --label golden --note "reference run for the v2 regression"
+```
+
+The command prints the stored values.
+
+```json
+{
+  "run_id": "run-baseline-001",
+  "label": "golden",
+  "note": "reference run for the v2 regression"
+}
+```
+
+Clear both fields with `--clear`.
+
+```powershell
+python -m agent_trace_workbench.cli annotate run-baseline-001 --clear
+```
+
+The run page shows a label badge and an editable notes box. The dashboard shows the label on each run card.
+
+Use the JSON API for scripts.
+
+```powershell
+curl.exe -X PATCH http://127.0.0.1:8000/api/runs/run-baseline-001/annotations `
+  -H "content-type: application/json" `
+  -d "{\"label\": \"golden\", \"note\": \"reference run\"}"
+```
+
+A label is at most 80 characters. A note is at most 2000 characters. An empty value clears one field. Search matches labels, so `atw search golden` finds the run.
+
+Re-ingesting a trace keeps its label and note. The annotation stays local and never enters the portable trace contract.
+
 ## Trace contract
 
 A trace requires `trace_id`, `run_id`, `agent_name`, and `spans`.
@@ -615,17 +657,18 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, and export. It covers the CLI, the API, and collector export.
+The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, and export. It covers the CLI, the API, and collector export.
 
 Run the checks with these commands.
 
 ```powershell
 python -m pytest
 ruff check .
+python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 125 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 143 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -636,6 +679,8 @@ The guard trusts the declared side-effect level. It does not inspect the handler
 Comparison aligns tool calls by recorded position. It does not infer semantic call identity.
 
 Search uses SQL `LIKE` matching. It does not rank results by relevance.
+
+Labels and notes stay local to the workbench database. Portable export files do not carry them.
 
 OTLP import reads the JSON encoding only. It does not read protobuf binary files.
 
@@ -674,16 +719,19 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 0.6 complete: add coordination for shared databases.
 - Release 0.7 complete: add richer comparison views and CSV export.
 - Release 0.8 complete: export workbench spans to a local OpenTelemetry collector.
-- Release 0.9: add run labels and notes for long-lived evidence review.
+- Release 0.9 complete: add run labels and notes for long-lived evidence review.
+- Release 1.0: add a review list for runs without labels and a folder-level summary report.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline and candidate traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic tests for the core. It covers coordination, guards, search, OTLP, export, and collector export.
+`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, and collector export.
 
 `static/` and `templates/` contain the presentation layer.
 
+`scripts/` contains the dependency pin check used by CI.
+
 `data/` is created at runtime and remains ignored by Git.
 
-`requirements.lock` pins the direct dependencies used by local setup and CI.
+`requirements.txt` pins the direct dependencies used by local setup and CI.

@@ -98,6 +98,16 @@ def build_parser() -> argparse.ArgumentParser:
     comparisons.add_argument("--limit", type=int, default=20)
     comparisons.add_argument("--delete", default=None, help="Comparison ID to delete")
 
+    annotate = subparsers.add_parser(
+        "annotate", help="Label a run and add local review notes"
+    )
+    annotate.add_argument("run_id")
+    annotate.add_argument("--label", default=None, help="Short label for the run")
+    annotate.add_argument("--note", default=None, help="Free-text review note")
+    annotate.add_argument(
+        "--clear", action="store_true", help="Remove the label and the note"
+    )
+
     watch = subparsers.add_parser("watch", help="Watch a directory for local JSON traces")
     watch.add_argument("directory", type=Path)
     watch.add_argument("--pattern", default="*.json")
@@ -200,6 +210,30 @@ def main() -> None:
             print(json.dumps({"deleted": args.delete}, indent=2))
         else:
             print(json.dumps(store.list_comparisons(args.limit), indent=2))
+    elif args.command == "annotate":
+        if args.clear:
+            label = ""
+            note = ""
+        elif args.label is None and args.note is None:
+            raise SystemExit("Provide --label, --note, or --clear")
+        else:
+            label = args.label
+            note = args.note
+        _validate_annotation("label", label)
+        _validate_annotation("note", note)
+        run = store.update_annotations(args.run_id, label=label, note=note)
+        if run is None:
+            raise SystemExit(f"Run not found: {args.run_id}")
+        print(
+            json.dumps(
+                {
+                    "run_id": run["run_id"],
+                    "label": run["label"],
+                    "note": run["note"],
+                },
+                indent=2,
+            )
+        )
     elif args.command == "watch":
         watcher = DirectoryWatcher(store, args.directory, args.pattern)
         watch_directory(watcher, args.interval_seconds, args.once)
@@ -213,6 +247,12 @@ def _run_summary(run: dict[str, object]) -> dict[str, object]:
         "tool_count": run["tool_count"],
         "source_name": run["source_name"],
     }
+
+
+def _validate_annotation(name: str, value: str | None) -> None:
+    limits = {"label": 80, "note": 2000}
+    if value is not None and len(value) > limits[name]:
+        raise SystemExit(f"{name} must be at most {limits[name]} characters")
 
 
 def _write_csv_export(run: dict[str, object], output: Path, *, single: bool) -> Path:

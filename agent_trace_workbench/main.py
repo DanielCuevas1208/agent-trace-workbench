@@ -17,7 +17,7 @@ from .collector import export_run_to_collector
 from .compare import compare_runs
 from .export import comparison_to_csv, run_tools_to_csv
 from .handlers import ReplayPolicy, load_handler_config
-from .models import CollectorExportRequest, ComparisonCreate, TraceDocument
+from .models import CollectorExportRequest, ComparisonCreate, RunAnnotations, TraceDocument
 from .otlp import parse_otlp_json, trace_to_otlp_json
 from .replay import ReplayEngine, default_replay_engine
 from .storage import TraceStore
@@ -36,7 +36,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     configure_telemetry()
     database_path = db_path or os.getenv("ATW_DB_PATH", "data/workbench.db")
     busy_timeout_ms = _env_int("ATW_DB_BUSY_TIMEOUT_MS", 5000)
-    app = FastAPI(title="Agent Trace Workbench", version="0.8.0")
+    app = FastAPI(title="Agent Trace Workbench", version="0.9.0")
     app.state.store = TraceStore(database_path, busy_timeout_ms=busy_timeout_ms)
     app.state.replay_engine = _build_replay_engine()
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
@@ -246,6 +246,15 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 status_code=404, detail=f"Comparison not found: {comparison_id}"
             )
         return {"status": "deleted", "comparison_id": comparison_id}
+
+    @app.patch("/api/runs/{run_id}/annotations")
+    def api_update_annotations(run_id: str, payload: RunAnnotations) -> dict[str, Any]:
+        run = app.state.store.update_annotations(
+            run_id, label=payload.label, note=payload.note
+        )
+        if run is None:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        return run
 
     return app
 

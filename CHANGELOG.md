@@ -4,6 +4,26 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 0.9.0 - 2026-08-03
+
+### Added
+
+- Local run labels and review notes stored beside each run.
+- `atw annotate` command that sets or clears a label and a note.
+- `PATCH /api/runs/{run_id}/annotations` route that updates both fields.
+- A label badge and an annotations form on the run detail page.
+- A label badge on dashboard run cards.
+- Search matching on run labels.
+- Automatic migration that adds the annotation columns to databases created before release 0.9.
+- Deterministic tests for the storage methods, migration, search, the CLI command, and the API route.
+
+### Changed
+
+- Version numbers moved to 0.9.0.
+- Run summaries now include the local label and note.
+- Re-ingesting a trace keeps its label and note.
+- The architecture now includes a local annotation layer beside the run record.
+
 ## 0.8.0 - 2026-08-03
 
 ### Added

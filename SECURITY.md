@@ -36,6 +36,6 @@ Replay runs local handler scripts from your configuration. Review a handler befo
 
 | Version | Supported |
 | ------- | --------- |
-| 0.8.x   | Yes       |
+| 0.9.x   | Yes       |
+| 0.8.x   | No        |
 | 0.7.x   | No        |
-| 0.6.x   | No        |
