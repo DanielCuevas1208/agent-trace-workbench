@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Library report | Agent Trace Workbench{% endblock %}
+{% block content %}
+<section class="detail-hero report-hero">
+    <div>
+        <div class="eyebrow">LIBRARY REPORT / FOLDER-LEVEL SUMMARY</div>
+        <h1>Read the whole room at once.</h1>
+        <p class="hero-copy">Totals for the trace library, grouped by agent and by the folder each run came from. Everything stays local.</p>
+    </div>
+    <div class="detail-actions">
+        <a class="button button-quiet" href="/api/report">JSON</a>
+        <a class="button button-primary" href="/review">Review queue <span aria-hidden="true">&#8594;</span></a>
+    </div>
+</section>
+<section class="metric-grid metric-grid-four detail-metrics">
+    <div class="metric-card"><span class="metric-label">Recorded runs</span><strong>{{ report.totals.runs }}</strong><span class="metric-note">across {{ report.totals.sources }} folders</span></div>
+    <div class="metric-card"><span class="metric-label">Tool calls</span><strong>{{ report.totals.tool_calls }}</strong><span class="metric-note">recorded boundaries</span></div>
+    <div class="metric-card {% if report.totals.failure_runs %}metric-alert{% endif %}"><span class="metric-label">Failure runs</span><strong>{{ report.totals.failure_runs }}</strong><span class="metric-note">of {{ report.totals.runs }} total</span></div>
+    <div class="metric-card"><span class="metric-label">Review coverage</span><strong>{{ report.totals.labeled_runs }}<small> / </small>{{ report.totals.runs }}</strong><span class="metric-note">{{ report.totals.unlabeled_runs }} still unlabeled</span></div>
+</section>
+
+<section class="section-block report-section">
+    <div class="section-heading"><div><div class="eyebrow">BY SOURCE FOLDER</div><h2>Evidence per folder</h2></div><span class="section-meta">{{ report.totals.sources }} sources</span></div>
+    {% if report.by_source %}
+    <div class="table-wrap"><table><thead><tr><th>Folder</th><th>Runs</th><th>Tool calls</th><th>Failures</th><th>Unlabeled</th><th>Agents</th></tr></thead><tbody>{% for item in report.by_source %}<tr><td class="mono">{{ item.source_dir }}</td><td>{{ item.runs }}</td><td>{{ item.tool_calls }}</td><td {% if item.failure_runs %}class="row-alert"{% endif %}>{{ item.failure_runs }}</td><td {% if item.unlabeled_runs %}class="row-alert"{% endif %}>{{ item.unlabeled_runs }}</td><td>{{ item.agents }}</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}
+    <div class="empty-state"><span class="empty-mark">+</span><h3>No runs yet</h3><p>Ingest a trace to fill the library report.</p></div>
+    {% endif %}
+</section>
+
+<section class="section-block report-section report-section-last">
+    <div class="section-heading"><div><div class="eyebrow">BY AGENT</div><h2>Evidence per agent</h2></div><span class="section-meta">{{ report.totals.agents }} agents</span></div>
+    {% if report.by_agent %}
+    <div class="table-wrap"><table><thead><tr><th>Agent</th><th>Runs</th><th>Tool calls</th><th>Failures</th><th>Unlabeled</th><th>Avg duration</th></tr></thead><tbody>{% for item in report.by_agent %}<tr><td>{{ item.agent_name }}</td><td>{{ item.runs }}</td><td>{{ item.tool_calls }}</td><td {% if item.failure_runs %}class="row-alert"{% endif %}>{{ item.failure_runs }}</td><td {% if item.unlabeled_runs %}class="row-alert"{% endif %}>{{ item.unlabeled_runs }}</td><td>{{ item.avg_duration_ms }} ms</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}
+    <div class="empty-state"><span class="empty-mark">+</span><h3>No agents yet</h3><p>The report appears once you record a run.</p></div>
+    {% endif %}
+</section>
+{% endblock %}

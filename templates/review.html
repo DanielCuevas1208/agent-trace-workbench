@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Review | Agent Trace Workbench{% endblock %}
+{% block content %}
+<section class="detail-hero review-hero">
+    <div>
+        <div class="eyebrow">REVIEW LIST / UNLABELED EVIDENCE</div>
+        <h1>Give every run a label.</h1>
+        <p class="hero-copy">Runs without a label have not been triaged yet. Open one, note what it showed, and it leaves this list.</p>
+    </div>
+    <div class="detail-actions">
+        <a class="button button-quiet" href="/api/review?limit={{ limit }}">JSON</a>
+        <a class="button button-primary" href="/report">Library report <span aria-hidden="true">&#8594;</span></a>
+    </div>
+</section>
+<section class="metric-grid detail-metrics">
+    <div class="metric-card"><span class="metric-label">Needs review</span><strong>{{ runs|length }}<small> shown</small></strong><span class="metric-note">in this view</span></div>
+    <div class="metric-card"><span class="metric-label">Unlabeled total</span><strong>{{ totals.unlabeled_runs }}</strong><span class="metric-note">across the library</span></div>
+    <div class="metric-card {% if totals.failure_runs %}metric-alert{% endif %}"><span class="metric-label">Failure runs</span><strong>{{ totals.failure_runs }}</strong><span class="metric-note">unlabeled or not</span></div>
+</section>
+<section class="section-block review-section">
+    <div class="section-heading"><div><div class="eyebrow">REVIEW QUEUE</div><h2>Unlabeled runs</h2></div><span class="section-meta">{{ totals.labeled_runs }} labeled · {{ totals.unlabeled_runs }} left</span></div>
+    {% if runs %}
+    <div class="table-wrap"><table><thead><tr><th>Status</th><th>Agent</th><th>Run</th><th>Tool calls</th><th>Duration</th><th>Source</th><th>Actions</th></tr></thead><tbody>{% for run in runs %}<tr><td><span class="badge badge-{{ run.status }}">{{ run.status }}</span></td><td>{{ run.agent_name }}</td><td class="mono">{{ run.run_id }}</td><td>{{ run.tool_count }}</td><td>{{ run.duration_ms|round(1) }} ms</td><td class="mono">{{ run.source_dir or 'api' }}/{{ run.source_name }}</td><td class="table-actions"><a class="button button-quiet" href="/runs/{{ run.run_id }}">Review</a></td></tr>{% endfor %}</tbody></table></div>
+    {% else %}
+    <div class="empty-state"><span class="empty-mark">&#10003;</span><h3>Nothing left to review</h3><p>Every run in the library has a label. Add one to a run to clear its review flag.</p></div>
+    {% endif %}
+</section>
+{% endblock %}

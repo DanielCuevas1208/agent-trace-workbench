@@ -8,6 +8,8 @@ Release 0.8 adds local OpenTelemetry collector export. Send workbench spans or a
 
 Release 0.9 adds run labels and review notes. Attach context to each run in the local database. The context survives re-ingestion and never leaves your machine.
 
+Release 1.0 adds a review list and a folder-level library report. Triage runs without a label, then read the library totals by agent and source folder.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -50,7 +52,7 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 - `models.py` defines the portable trace contract.
 - `handlers.py` loads local handler config and applies side-effect guards.
-- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations.
+- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It also computes the review list and the library report.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
@@ -635,6 +637,83 @@ A label is at most 80 characters. A note is at most 2000 characters. An empty va
 
 Re-ingesting a trace keeps its label and note. The annotation stays local and never enters the portable trace contract.
 
+## Review list
+
+Find runs that still need a review label.
+
+```powershell
+python -m agent_trace_workbench.cli review
+```
+
+The command lists every unlabeled run.
+
+```json
+[
+  {
+    "run_id": "run-candidate-001",
+    "agent_name": "catalog-assistant",
+    "status": "error",
+    "tool_count": 3
+  }
+]
+```
+
+Label a run on its page. It leaves the review list.
+
+The JSON API accepts the same query.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/review"
+```
+
+The review page links each run to its annotation form.
+
+## Library report
+
+Summarize the local trace library by agent and source folder.
+
+```powershell
+python -m agent_trace_workbench.cli report
+```
+
+The report shows library totals and one row per source folder.
+
+```json
+{
+  "totals": {
+    "runs": 2,
+    "ok_runs": 1,
+    "failure_runs": 1,
+    "labeled_runs": 0,
+    "unlabeled_runs": 2,
+    "tool_calls": 5,
+    "agents": 1,
+    "sources": 1,
+    "total_duration_ms": 500.0
+  },
+  "by_source": [
+    {
+      "source_dir": "fixtures",
+      "runs": 2,
+      "failure_runs": 1,
+      "unlabeled_runs": 2,
+      "tool_calls": 5,
+      "agents": 1
+    }
+  ]
+}
+```
+
+A source folder is the directory that produced the run. The watcher records it. The ingest commands record their file parent. API-ingested runs group under `api`.
+
+The report page shows the same numbers as tables.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/report"
+```
+
+The JSON API returns the same document.
+
 ## Trace contract
 
 A trace requires `trace_id`, `run_id`, `agent_name`, and `spans`.
@@ -657,7 +736,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, and export. It covers the CLI, the API, and collector export.
+The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, export, review, and reports. It covers the CLI, the API, and collector export.
 
 Run the checks with these commands.
 
@@ -668,7 +747,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 143 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 157 tests, Ruff lint, dependency checks, and Python compilation. CI runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -681,6 +760,10 @@ Comparison aligns tool calls by recorded position. It does not infer semantic ca
 Search uses SQL `LIKE` matching. It does not rank results by relevance.
 
 Labels and notes stay local to the workbench database. Portable export files do not carry them.
+
+The review list shows runs with an empty label. A blank label counts as unreviewed.
+
+The library report groups by the recorded source folder. API-ingested runs group under `api`. A re-ingest updates the source folder to the latest ingestion.
 
 OTLP import reads the JSON encoding only. It does not read protobuf binary files.
 
@@ -720,13 +803,14 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 0.7 complete: add richer comparison views and CSV export.
 - Release 0.8 complete: export workbench spans to a local OpenTelemetry collector.
 - Release 0.9 complete: add run labels and notes for long-lived evidence review.
-- Release 1.0: add a review list for runs without labels and a folder-level summary report.
+- Release 1.0 complete: add a review list for runs without labels and a folder-level summary report.
+- Release 1.1: add a CSV export for the library report and bulk label actions on the review list.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline and candidate traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, and collector export.
+`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, and collector export.
 
 `static/` and `templates/` contain the presentation layer.
 

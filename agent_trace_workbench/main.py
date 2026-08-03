@@ -36,7 +36,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     configure_telemetry()
     database_path = db_path or os.getenv("ATW_DB_PATH", "data/workbench.db")
     busy_timeout_ms = _env_int("ATW_DB_BUSY_TIMEOUT_MS", 5000)
-    app = FastAPI(title="Agent Trace Workbench", version="0.9.0")
+    app = FastAPI(title="Agent Trace Workbench", version="1.0.0")
     app.state.store = TraceStore(database_path, busy_timeout_ms=busy_timeout_ms)
     app.state.replay_engine = _build_replay_engine()
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
@@ -118,6 +118,37 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         }
         return render_template(request, "compare.html", context)
 
+    @app.get("/review", response_class=HTMLResponse)
+    def review_page(
+        request: Request,
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> Any:
+        runs = app.state.store.unreviewed_runs(limit)
+        totals = app.state.store.library_report()["totals"]
+        return render_template(
+            request,
+            "review.html",
+            {
+                "runs": runs,
+                "totals": totals,
+                "limit": limit,
+                "store": app.state.store.store_info(),
+                "telemetry": _telemetry_info(),
+            },
+        )
+
+    @app.get("/report", response_class=HTMLResponse)
+    def report_page(request: Request) -> Any:
+        return render_template(
+            request,
+            "report.html",
+            {
+                "report": app.state.store.library_report(),
+                "store": app.state.store.store_info(),
+                "telemetry": _telemetry_info(),
+            },
+        )
+
     @app.get("/api/runs")
     def api_runs(
         limit: int = Query(default=20, ge=1, le=100),
@@ -126,6 +157,16 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         if q:
             return app.state.store.search_runs(q, limit)
         return app.state.store.list_runs(limit)
+
+    @app.get("/api/review")
+    def api_review(
+        limit: int = Query(default=20, ge=1, le=100),
+    ) -> list[dict[str, Any]]:
+        return app.state.store.unreviewed_runs(limit)
+
+    @app.get("/api/report")
+    def api_report() -> dict[str, Any]:
+        return app.state.store.library_report()
 
     @app.get("/api/store")
     def api_store() -> dict[str, Any]:
@@ -304,6 +345,17 @@ def _fallback_html(name: str, context: dict[str, Any]) -> str:
     if name == "replay.html":
         report = escape(str(context["report"]))
         return f"<html><body><h1>Replay report</h1><pre>{report}</pre></body></html>"
+    if name == "review.html":
+        runs = context.get("runs", [])
+        cards = "".join(
+            f'<li><a href="/runs/{escape(run["run_id"])}">{escape(run["agent_name"])} '
+            f'({escape(run["status"])})</a></li>'
+            for run in runs
+        )
+        return f"<html><body><h1>Review runs</h1><ul>{cards}</ul></body></html>"
+    if name == "report.html":
+        totals = escape(str(context["report"]["totals"]))
+        return f"<html><body><h1>Library report</h1><pre>{totals}</pre></body></html>"
     return "<html><body><h1>Compare runs</h1></body></html>"
 
 
