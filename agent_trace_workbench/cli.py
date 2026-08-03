@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from .compare import compare_runs
 from .handlers import ReplayPolicy, load_handler_config
 from .ingestion import DirectoryWatcher, watch_directory
 from .models import TraceDocument
+from .otlp import parse_otlp_json, trace_to_otlp_json
 from .replay import default_replay_engine
 from .storage import TraceStore
 
@@ -22,6 +24,23 @@ def build_parser() -> argparse.ArgumentParser:
     ingest = subparsers.add_parser("ingest", help="Ingest a local JSON trace")
     ingest.add_argument("path", type=Path)
     ingest.add_argument("--source", default=None)
+
+    import_otlp = subparsers.add_parser(
+        "import-otlp", help="Import an OTLP JSON trace file"
+    )
+    import_otlp.add_argument("path", type=Path)
+    import_otlp.add_argument("--source", default=None)
+
+    export = subparsers.add_parser("export", help="Export runs to portable JSON files")
+    export.add_argument(
+        "run_id", nargs="?", default=None, help="Run ID; omit to export every run"
+    )
+    export.add_argument(
+        "--format", choices=["json", "otlp"], default="json", help="File format"
+    )
+    export.add_argument(
+        "--output", type=Path, default=None, help="Output file or directory"
+    )
 
     list_parser = subparsers.add_parser("list", help="List recent runs")
     list_parser.add_argument("--limit", type=int, default=20)
@@ -45,6 +64,14 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("run_a")
     compare.add_argument("run_b")
 
+    search = subparsers.add_parser("search", help="Search recorded runs")
+    search.add_argument("query")
+    search.add_argument("--limit", type=int, default=20)
+
+    comparisons = subparsers.add_parser("comparisons", help="Manage saved comparisons")
+    comparisons.add_argument("--limit", type=int, default=20)
+    comparisons.add_argument("--delete", default=None, help="Comparison ID to delete")
+
     watch = subparsers.add_parser("watch", help="Watch a directory for local JSON traces")
     watch.add_argument("directory", type=Path)
     watch.add_argument("--pattern", default="*.json")
@@ -59,6 +86,37 @@ def main() -> None:
     if args.command == "ingest":
         trace = TraceDocument.model_validate_json(args.path.read_text(encoding="utf-8"))
         print(json.dumps(store.ingest(trace, args.source or args.path.name), indent=2))
+    elif args.command == "import-otlp":
+        documents = parse_otlp_json(args.path.read_text(encoding="utf-8"))
+        if not documents:
+            raise SystemExit("No traces found in the OTLP payload")
+        runs = [
+            _run_summary(store.ingest(trace, args.source or args.path.name))
+            for trace in documents
+        ]
+        print(
+            json.dumps(
+                {
+                    "source": str(args.path),
+                    "imported_runs": len(runs),
+                    "runs": runs,
+                },
+                indent=2,
+            )
+        )
+    elif args.command == "export":
+        run_ids = [args.run_id] if args.run_id else store.list_run_ids()
+        if not run_ids:
+            raise SystemExit("No runs to export")
+        output = args.output or Path("data/exports")
+        exported = []
+        for run_id in run_ids:
+            trace = store.get_trace(run_id)
+            if trace is None:
+                raise SystemExit(f"Run not found: {run_id}")
+            path = _write_export(trace, args.format, output, single=(len(run_ids) == 1))
+            exported.append({"run_id": run_id, "format": args.format, "path": str(path)})
+        print(json.dumps({"exported": exported}, indent=2))
     elif args.command == "list":
         print(json.dumps(store.list_runs(args.limit), indent=2))
     elif args.command == "replay":
@@ -80,9 +138,61 @@ def main() -> None:
         if trace_a is None or trace_b is None:
             raise SystemExit("Both run IDs must exist")
         print(json.dumps(compare_runs(trace_a, trace_b).as_dict(), indent=2))
+    elif args.command == "search":
+        print(json.dumps(store.search_runs(args.query, args.limit), indent=2))
+    elif args.command == "comparisons":
+        if args.delete:
+            deleted = store.delete_comparison(args.delete)
+            if not deleted:
+                raise SystemExit(f"Comparison not found: {args.delete}")
+            print(json.dumps({"deleted": args.delete}, indent=2))
+        else:
+            print(json.dumps(store.list_comparisons(args.limit), indent=2))
     elif args.command == "watch":
         watcher = DirectoryWatcher(store, args.directory, args.pattern)
         watch_directory(watcher, args.interval_seconds, args.once)
+
+
+def _run_summary(run: dict[str, object]) -> dict[str, object]:
+    return {
+        "run_id": run["run_id"],
+        "status": run["status"],
+        "duration_ms": run["duration_ms"],
+        "tool_count": run["tool_count"],
+        "source_name": run["source_name"],
+    }
+
+
+def _write_export(
+    trace: TraceDocument,
+    export_format: str,
+    output: Path,
+    *,
+    single: bool,
+) -> Path:
+    suffix = ".otlp.json" if export_format == "otlp" else ".json"
+    filename = f"{_safe_filename(trace.run_id)}{suffix}"
+    if single and not _looks_like_directory(output, suffix):
+        target = output
+        target.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        target = output / filename
+        output.mkdir(parents=True, exist_ok=True)
+    payload = trace_to_otlp_json(trace) if export_format == "otlp" else trace.as_jsonable()
+    target.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
+    return target
+
+
+def _looks_like_directory(path: Path, suffix: str) -> bool:
+    if path.exists():
+        return path.is_dir()
+    if path.suffix:
+        return path.suffix != suffix
+    return True
+
+
+def _safe_filename(value: str) -> str:
+    return re.sub(r"[^0-9A-Za-z._-]+", "-", value).strip("-") or "run"
 
 
 if __name__ == "__main__":

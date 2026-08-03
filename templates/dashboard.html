@@ -2,9 +2,9 @@
 {% block title %}Runs | Agent Trace Workbench{% endblock %}
 {% block content %}
 <section class="hero">
-    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 0.3</div>
+    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 0.5</div>
     <h1>See what your agent did.<br><em>Replay why it did it.</em></h1>
-    <p class="hero-copy">Ingest local JSON traces, watch a folder, inspect every tool boundary, replay recorded work, and compare runs without a hosted service.</p>
+    <p class="hero-copy">Ingest local JSON traces, import OTLP exports, watch a folder, inspect every tool boundary, replay recorded work, and compare runs without a hosted service.</p>
     <div class="hero-actions">
         <a class="button button-primary" href="#ingest">Ingest a trace <span aria-hidden="true">&#8594;</span></a>
         <a class="button button-quiet" href="/compare">Compare runs</a>
@@ -48,6 +48,12 @@
 
 <section id="recent-runs" class="section-block">
     <div class="section-heading"><div><div class="eyebrow">03 / TRACE LIBRARY</div><h2>Recent runs</h2></div><span class="section-meta">{{ runs|length }} shown</span></div>
+    <form method="get" action="/" class="search-bar" role="search">
+        <label class="visually-hidden" for="run-search">Search runs</label>
+        <input id="run-search" type="search" name="q" value="{{ query }}" placeholder="Search by run ID, agent, span, or tool...">
+        <button class="button button-primary" type="submit">Search</button>
+        {% if query %}<a class="button button-quiet" href="/">Clear</a>{% endif %}
+    </form>
     {% if runs %}
     <div class="run-grid">
         {% for run in runs %}
@@ -60,7 +66,6 @@
         {% endfor %}
     </div>
     {% else %}
-    <div class="empty-state"><span class="empty-mark">+</span><h3>No runs yet</h3><p>Load the bundled fixtures to make the workbench visible.</p><code>atw ingest fixtures/run_baseline.json</code></div>
-    {% endif %}
-</section>
+    <div class="empty-state"><span class="empty-mark">+</span><h3>{% if query %}No matches{% else %}No runs yet{% endif %}</h3><p>{% if query %}Try a different search term.{% else %}Load the bundled fixtures to make the workbench visible.{% endif %}</p>{% if not query %}<code>atw ingest fixtures/run_baseline.json</code>{% endif %}</div>
+    {% endif %}</section>
 {% endblock %}

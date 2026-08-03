@@ -133,3 +133,13 @@ def ensure_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+class ComparisonCreate(BaseModel):
+    """Request body for saving a run comparison."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_a: str = Field(min_length=1)
+    run_b: str = Field(min_length=1)
+    label: str = Field(min_length=1, max_length=120)

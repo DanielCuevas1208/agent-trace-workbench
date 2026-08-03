@@ -1,26 +1,64 @@
 (() => {
     const form = document.querySelector("#ingest-form");
-    if (!form) return;
+    if (form) {
+        const status = document.querySelector("#ingest-status");
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            status.className = "form-status";
+            status.textContent = "Storing...";
+            try {
+                const payload = JSON.parse(document.querySelector("#trace-json").value);
+                const response = await fetch("/api/traces", {
+                    method: "POST",
+                    headers: { "content-type": "application/json", "x-trace-source": "dashboard.json" },
+                    body: JSON.stringify(payload),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || "Trace could not be stored.");
+                status.textContent = "Stored. Opening run...";
+                window.location.href = `/runs/${encodeURIComponent(result.run_id)}`;
+            } catch (error) {
+                status.className = "form-status error";
+                status.textContent = error.message;
+            }
+        });
+    }
 
-    const status = document.querySelector("#ingest-status");
-    form.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        status.className = "form-status";
-        status.textContent = "Storing...";
-        try {
-            const payload = JSON.parse(document.querySelector("#trace-json").value);
-            const response = await fetch("/api/traces", {
-                method: "POST",
-                headers: { "content-type": "application/json", "x-trace-source": "dashboard.json" },
-                body: JSON.stringify(payload),
+    const saveForm = document.querySelector("#save-comparison");
+    if (saveForm) {
+        const status = document.querySelector("#comparison-status");
+        saveForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            status.className = "form-status";
+            status.textContent = "Saving...";
+            try {
+                const data = new FormData(saveForm);
+                const response = await fetch("/api/comparisons", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({
+                        run_a: data.get("run_a"),
+                        run_b: data.get("run_b"),
+                        label: data.get("label"),
+                    }),
+                });
+                if (!response.ok) throw new Error("Comparison could not be saved.");
+                status.textContent = "Saved.";
+                window.location.reload();
+            } catch (error) {
+                status.className = "form-status error";
+                status.textContent = error.message;
+            }
+        });
+    }
+
+    document.querySelectorAll("[data-delete]").forEach((link) => {
+        link.addEventListener("click", async (event) => {
+            event.preventDefault();
+            const response = await fetch(`/api/comparisons/${encodeURIComponent(link.dataset.delete)}`, {
+                method: "DELETE",
             });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.detail || "Trace could not be stored.");
-            status.textContent = "Stored. Opening run...";
-            window.location.href = `/runs/${encodeURIComponent(result.run_id)}`;
-        } catch (error) {
-            status.className = "form-status error";
-            status.textContent = error.message;
-        }
+            if (response.ok) window.location.reload();
+        });
     });
 })();

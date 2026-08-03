@@ -8,7 +8,14 @@
         <h1>{{ run.agent_name }}</h1>
         <p class="hero-copy">{{ run.run_id }} · {{ run.agent_version }} · {{ run.source_name }}</p>
     </div>
-    <div class="detail-actions"><span class="badge badge-{{ run.status }}">{{ run.status }}</span><a class="button button-primary" href="/runs/{{ run.run_id }}/replay">Replay run <span aria-hidden="true">&#8594;</span></a></div>
+    <div class="detail-actions">
+        <span class="badge badge-{{ run.status }}">{{ run.status }}</span>
+        <div class="export-actions" aria-label="Export run">
+            <a class="button button-quiet" href="/api/runs/{{ run.run_id }}/export?format=json" download>JSON</a>
+            <a class="button button-quiet" href="/api/runs/{{ run.run_id }}/export?format=otlp" download>OTLP</a>
+        </div>
+        <a class="button button-primary" href="/runs/{{ run.run_id }}/replay">Replay run <span aria-hidden="true">&#8594;</span></a>
+    </div>
 </section>
 <section class="metric-grid detail-metrics">
     <div class="metric-card"><span class="metric-label">Run duration</span><strong>{{ run.duration_ms|round(1) }}<small> ms</small></strong><span class="metric-note">wall-clock span</span></div>
@@ -17,6 +24,14 @@
 </section>
 <section class="section-block trace-section">
     <div class="section-heading"><div><div class="eyebrow">TRACE WATERFALL</div><h2>Recorded activity</h2></div><span class="section-meta">{{ run.spans|length }} spans</span></div>
+    <form method="get" action="/runs/{{ run.run_id }}" class="filter-bar" role="search">
+        <label>Kind<select name="kind"><option value="">any</option>{% for option in filters.kinds %}<option value="{{ option }}" {% if filters.selected.kind == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+        <label>Status<select name="status"><option value="">any</option>{% for option in filters.statuses %}<option value="{{ option }}" {% if filters.selected.status == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+        <label>Tool<select name="tool"><option value="">any</option>{% for option in filters.tools %}<option value="{{ option }}" {% if filters.selected.tool == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+        <button class="button button-primary" type="submit">Filter</button>
+        {% if filters.active %}<a class="button button-quiet" href="/runs/{{ run.run_id }}">Clear</a>{% endif %}
+    </form>
+    {% if run.spans %}
     <div class="trace-list">
         {% for span in run.spans %}
         <article class="trace-row trace-{{ span.kind }} {% if span.status == 'error' %}trace-error{% endif %}">
@@ -36,5 +51,8 @@
         </article>
         {% endfor %}
     </div>
+    {% else %}
+    <div class="empty-state"><span class="empty-mark">∅</span><h3>No spans match</h3><p>The active filters matched no spans in this run.</p></div>
+    {% endif %}
 </section>
 {% endblock %}
