@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .collector import export_run_to_collector
 from .compare import compare_runs
-from .export import comparison_to_csv, run_tools_to_csv
+from .export import comparison_to_csv, report_to_csv, run_tools_to_csv
 from .handlers import ReplayPolicy, load_handler_config
 from .ingestion import DirectoryWatcher, watch_directory
 from .models import TraceDocument
@@ -102,9 +102,27 @@ def build_parser() -> argparse.ArgumentParser:
         "review", help="List runs that still need a review label"
     )
     review.add_argument("--limit", type=int, default=20)
+    review.add_argument(
+        "--label",
+        default=None,
+        help="Bulk label the listed runs, or every unreviewed run",
+    )
+    review.add_argument(
+        "--run-id",
+        action="append",
+        dest="run_ids",
+        default=None,
+        help="Run ID to label; repeat for several runs",
+    )
 
-    subparsers.add_parser(
+    report = subparsers.add_parser(
         "report", help="Print a folder-level summary of the local library"
+    )
+    report.add_argument(
+        "--format",
+        choices=["json", "csv"],
+        default="json",
+        help="Output format",
     )
 
     annotate = subparsers.add_parser(
@@ -235,9 +253,25 @@ def main() -> None:
         else:
             print(json.dumps(store.list_comparisons(args.limit), indent=2))
     elif args.command == "review":
-        print(json.dumps(store.unreviewed_runs(args.limit), indent=2))
+        if args.label is not None:
+            _validate_annotation("label", args.label)
+            run_ids = args.run_ids or [
+                run["run_id"] for run in store.unreviewed_runs(100)
+            ]
+            if not run_ids:
+                raise SystemExit("No runs to label")
+            updated = store.bulk_set_labels(run_ids, args.label)
+            print(json.dumps({"label": args.label, "updated": updated}, indent=2))
+        elif args.run_ids:
+            raise SystemExit("Provide --label together with --run-id")
+        else:
+            print(json.dumps(store.unreviewed_runs(args.limit), indent=2))
     elif args.command == "report":
-        print(json.dumps(store.library_report(), indent=2))
+        report = store.library_report()
+        if args.format == "csv":
+            print(report_to_csv(report), end="")
+        else:
+            print(json.dumps(report, indent=2))
     elif args.command == "annotate":
         if args.clear:
             label = ""

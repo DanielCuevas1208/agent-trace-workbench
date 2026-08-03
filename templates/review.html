@@ -20,7 +20,12 @@
 <section class="section-block review-section">
     <div class="section-heading"><div><div class="eyebrow">REVIEW QUEUE</div><h2>Unlabeled runs</h2></div><span class="section-meta">{{ totals.labeled_runs }} labeled · {{ totals.unlabeled_runs }} left</span></div>
     {% if runs %}
-    <div class="table-wrap"><table><thead><tr><th>Status</th><th>Agent</th><th>Run</th><th>Tool calls</th><th>Duration</th><th>Source</th><th>Actions</th></tr></thead><tbody>{% for run in runs %}<tr><td><span class="badge badge-{{ run.status }}">{{ run.status }}</span></td><td>{{ run.agent_name }}</td><td class="mono">{{ run.run_id }}</td><td>{{ run.tool_count }}</td><td>{{ run.duration_ms|round(1) }} ms</td><td class="mono">{{ run.source_dir or 'api' }}/{{ run.source_name }}</td><td class="table-actions"><a class="button button-quiet" href="/runs/{{ run.run_id }}">Review</a></td></tr>{% endfor %}</tbody></table></div>
+    <form id="bulk-label-form" class="bulk-label" aria-label="Apply one label to the selected runs">
+        <input id="bulk-label-input" name="label" maxlength="80" placeholder="Label, e.g. triaged" aria-label="Label to apply">
+        <button class="button button-primary" type="submit">Apply to selected <span aria-hidden="true">&#8594;</span></button>
+        <span id="bulk-label-status" class="form-status" role="status"></span>
+    </form>
+    <div class="table-wrap"><table><thead><tr><th><input type="checkbox" id="select-all" aria-label="Select all runs"></th><th>Status</th><th>Agent</th><th>Run</th><th>Tool calls</th><th>Duration</th><th>Source</th><th>Actions</th></tr></thead><tbody>{% for run in runs %}<tr><td><input type="checkbox" class="run-check" value="{{ run.run_id }}" aria-label="Select {{ run.run_id }}"></td><td><span class="badge badge-{{ run.status }}">{{ run.status }}</span></td><td>{{ run.agent_name }}</td><td class="mono">{{ run.run_id }}</td><td>{{ run.tool_count }}</td><td>{{ run.duration_ms|round(1) }} ms</td><td class="mono">{{ run.source_dir or 'api' }}/{{ run.source_name }}</td><td class="table-actions"><a class="button button-quiet" href="/runs/{{ run.run_id }}">Review</a></td></tr>{% endfor %}</tbody></table></div>
     {% else %}
     <div class="empty-state"><span class="empty-mark">&#10003;</span><h3>Nothing left to review</h3><p>Every run in the library has a label. Add one to a run to clear its review flag.</p></div>
     {% endif %}

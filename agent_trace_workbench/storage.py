@@ -528,6 +528,33 @@ class TraceStore:
                 return None
             return self.get_run(run_id)
 
+    def bulk_set_labels(self, run_ids: list[str], label: str) -> int:
+        """Set the same label on several runs and return the count updated.
+
+        The review list offers one action per run. Bulk labeling speeds
+        up triage: mark the runs you checked and apply one label to all
+        of them. Duplicate run IDs collapse into one update. An empty
+        label clears the review flag on every listed run.
+        """
+
+        if len(label) > _ANNOTATION_MAX["label"]:
+            raise ValueError(f"label must be at most {_ANNOTATION_MAX['label']} characters")
+        unique_ids = list(dict.fromkeys(run_ids))
+        if not unique_ids:
+            return 0
+        with traced_operation("storage.bulk_set_labels", {"label.count": len(unique_ids)}):
+
+            def _update() -> int:
+                with self._connect() as connection:
+                    placeholders = ", ".join("?" * len(unique_ids))
+                    cursor = connection.execute(
+                        f"UPDATE runs SET label = ? WHERE run_id IN ({placeholders})",
+                        [label, *unique_ids],
+                    )
+                    return cursor.rowcount
+
+            return _retry_on_lock(_update)
+
     def save_comparison(
         self,
         run_a: str,

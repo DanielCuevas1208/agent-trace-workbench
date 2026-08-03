@@ -170,3 +170,28 @@ class RunAnnotations(BaseModel):
         if self.label is None and self.note is None:
             raise ValueError("Provide a label, a note, or both")
         return self
+
+
+class BulkLabelRequest(BaseModel):
+    """Request body for applying one label to several review runs.
+
+    An empty label clears the review flag on each listed run. The list
+    deduplicates so one run counts once.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_ids: list[str]
+    label: str = Field(max_length=80)
+
+    @model_validator(mode="after")
+    def validate_run_ids(self) -> BulkLabelRequest:
+        stripped = [run_id.strip() for run_id in self.run_ids]
+        if not stripped:
+            raise ValueError("Provide at least one run ID")
+        if any(not run_id for run_id in stripped):
+            raise ValueError("Run IDs must not be empty")
+        self.run_ids = list(dict.fromkeys(stripped))
+        if len(self.run_ids) > 100:
+            raise ValueError("Label at most 100 runs at once")
+        return self

@@ -131,4 +131,44 @@
             }
         });
     }
+
+    const bulkForm = document.querySelector("#bulk-label-form");
+    if (bulkForm) {
+        const status = document.querySelector("#bulk-label-status");
+        const selectAll = document.querySelector("#select-all");
+        selectAll.addEventListener("change", () => {
+            document.querySelectorAll(".run-check").forEach((box) => {
+                box.checked = selectAll.checked;
+            });
+        });
+        bulkForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const runIds = Array.from(
+                document.querySelectorAll(".run-check:checked"),
+                (box) => box.value,
+            );
+            if (runIds.length === 0) {
+                status.className = "form-status error";
+                status.textContent = "Select at least one run.";
+                return;
+            }
+            status.className = "form-status";
+            status.textContent = "Applying label...";
+            try {
+                const label = String(bulkForm.querySelector("[name=label]").value);
+                const response = await fetch("/api/review/labels", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ run_ids: runIds, label }),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || "Labels could not be applied.");
+                status.textContent = `Labeled ${result.updated} run${result.updated === 1 ? "" : "s"}.`;
+                window.location.reload();
+            } catch (error) {
+                status.className = "form-status error";
+                status.textContent = error.message;
+            }
+        });
+    }
 })();
