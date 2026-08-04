@@ -11,6 +11,9 @@ enter the portable trace contract. Each run keeps the folder that
 produced it, so the report layer can group evidence by source directory.
 A retention cutoff reuses the same table: a prune deletes runs last
 ingested before a cutoff, and a label protects a run from that cleanup.
+A cleanup log records every scheduled sweep, so the library report can
+show a retention line: how much old evidence exists, how many labels
+protect it, and when the last sweep ran.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 from uuid import uuid4
@@ -88,6 +91,19 @@ CREATE TABLE IF NOT EXISTS comparisons (
     run_b TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
     report_json TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS cleanup_log (
+    sweep_id TEXT PRIMARY KEY,
+    ran_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    older_than_days INTEGER NOT NULL,
+    keep_labeled INTEGER NOT NULL,
+    cutoff TEXT NOT NULL,
+    candidates INTEGER NOT NULL,
+    protected_runs INTEGER NOT NULL,
+    deleted_runs INTEGER NOT NULL,
+    deleted_spans INTEGER NOT NULL,
+    deleted_comparisons INTEGER NOT NULL
 );
 """
 
@@ -373,6 +389,111 @@ class TraceStore:
 
             return _retry_on_lock(_prune)
 
+    def sweep_runs(
+        self,
+        older_than_days: int,
+        *,
+        keep_labeled: bool = True,
+        run_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Prune old runs and record the sweep in the cleanup log.
+
+        A scheduled cleanup runs this method on an interval. The method
+        applies the same policy as prune_runs, then stores one history
+        row so the library report can show when cleanup last ran. A
+        dry-run preview never writes to the log.
+        """
+
+        if older_than_days < 1:
+            raise ValueError("older_than_days must be at least 1")
+        cutoff = _retention_cutoff(older_than_days)
+        with traced_operation("storage.sweep_runs", {"db.path": self.db_path.name}):
+            protected = (
+                self.protected_runs(cutoff, run_ids=run_ids) if keep_labeled else []
+            )
+            result = self.prune_runs(
+                cutoff, keep_labeled=keep_labeled, run_ids=run_ids
+            )
+            sweep_id = uuid4().hex[:12]
+            ran_at = _now_utc().strftime("%Y-%m-%d %H:%M:%S.%f")
+            sweep = {
+                "sweep_id": sweep_id,
+                "ran_at": ran_at,
+                "older_than_days": older_than_days,
+                "keep_labeled": int(keep_labeled),
+                "cutoff": cutoff.isoformat(),
+                "candidates": len(result["candidates"]),
+                "protected_runs": len(protected),
+                "deleted_runs": result["deleted_runs"],
+                "deleted_spans": result["deleted_spans"],
+                "deleted_comparisons": result["deleted_comparisons"],
+            }
+            _retry_on_lock(lambda: self._record_sweep(sweep))
+            return {
+                "sweep_id": sweep_id,
+                "ran_at": ran_at,
+                "older_than_days": older_than_days,
+                "cutoff": cutoff.isoformat(),
+                "keep_labeled": keep_labeled,
+                "protected_runs": len(protected),
+                "deleted_runs": result["deleted_runs"],
+                "deleted_spans": result["deleted_spans"],
+                "deleted_comparisons": result["deleted_comparisons"],
+                "run_ids": result["candidates"],
+            }
+
+    def _record_sweep(self, sweep: dict[str, Any]) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO cleanup_log (
+                    sweep_id, ran_at, older_than_days, keep_labeled, cutoff,
+                    candidates, protected_runs, deleted_runs, deleted_spans,
+                    deleted_comparisons
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    sweep["sweep_id"],
+                    sweep["ran_at"],
+                    sweep["older_than_days"],
+                    sweep["keep_labeled"],
+                    sweep["cutoff"],
+                    sweep["candidates"],
+                    sweep["protected_runs"],
+                    sweep["deleted_runs"],
+                    sweep["deleted_spans"],
+                    sweep["deleted_comparisons"],
+                ),
+            )
+
+    def sweep_history(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Return recent cleanup sweeps, newest first.
+
+        Each entry summarises one scheduled run: the policy, the cutoff,
+        how many runs were deleted, and how many labels protected runs.
+        The cleanup page and the API use this history to show that the
+        retention policy actually runs.
+        """
+
+        safe_limit = max(1, min(limit, 100))
+        with traced_operation("storage.sweep_history", {"sweep.limit": safe_limit}):
+            with self._connect() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT * FROM cleanup_log
+                    ORDER BY ran_at DESC, sweep_id DESC
+                    LIMIT ?
+                    """,
+                    (safe_limit,),
+                ).fetchall()
+                return [_sweep_row(row) for row in rows]
+
+    def last_sweep(self) -> dict[str, Any] | None:
+        """Return the most recent cleanup sweep, or None when none ran."""
+
+        history = self.sweep_history(1)
+        return history[0] if history else None
+
     def runs_by_ids(self, run_ids: list[str]) -> list[dict[str, Any]]:
         """Return run summaries for the given IDs in input order.
 
@@ -440,14 +561,20 @@ class TraceStore:
                 ).fetchall()
                 return _summarize_runs(connection, rows)
 
-    def library_report(self) -> dict[str, Any]:
+    def library_report(self, *, older_than_days: int = 30) -> dict[str, Any]:
         """Return a folder-level summary of the local trace library.
 
         The report shows one row per agent and one row per source folder.
         It also shows library-wide totals for runs, tool calls, failures,
-        and labeled evidence. The data never leaves the local database.
+        and labeled evidence. A retention line reports the old-evidence
+        state: runs a prune would remove now, labels that protect old
+        runs, and the last time a scheduled cleanup ran. The data never
+        leaves the local database.
         """
 
+        if older_than_days < 1:
+            raise ValueError("older_than_days must be at least 1")
+        cutoff = _retention_cutoff(older_than_days)
         with traced_operation("storage.library_report", {"db.path": self.db_path.name}):
             with self._connect() as connection:
                 total = connection.execute(
@@ -546,6 +673,9 @@ class TraceStore:
                 }
             )
         by_source.sort(key=lambda item: (-item["runs"], item["source_dir"]))
+        eligible = self.retention_candidates(cutoff, keep_labeled=True)
+        protected = self.protected_runs(cutoff)
+        last = self.last_sweep()
         return {
             "totals": {
                 "runs": total["runs"],
@@ -560,6 +690,13 @@ class TraceStore:
             },
             "by_agent": by_agent,
             "by_source": by_source,
+            "retention": {
+                "older_than_days": older_than_days,
+                "cutoff": cutoff.isoformat(),
+                "eligible_runs": len(eligible),
+                "protected_runs": len(protected),
+                "last_cleanup_at": last["ran_at"] if last else None,
+            },
         }
 
     def get_run(
@@ -783,6 +920,16 @@ def _ingested_cutoff(cutoff: datetime) -> str:
     return cutoff.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _retention_cutoff(older_than_days: int) -> datetime:
+    """Return the UTC instant before which a run counts as old."""
+
+    return _now_utc() - timedelta(days=older_than_days)
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def _retention_ids(
     connection: sqlite3.Connection,
     cutoff: datetime,
@@ -884,6 +1031,21 @@ def _comparison_row(row: sqlite3.Row) -> dict[str, Any]:
         "run_b": row["run_b"],
         "created_at": row["created_at"],
         "report": json.loads(row["report_json"]),
+    }
+
+
+def _sweep_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "sweep_id": row["sweep_id"],
+        "ran_at": row["ran_at"],
+        "older_than_days": row["older_than_days"],
+        "keep_labeled": bool(row["keep_labeled"]),
+        "cutoff": row["cutoff"],
+        "candidates": row["candidates"],
+        "protected_runs": row["protected_runs"],
+        "deleted_runs": row["deleted_runs"],
+        "deleted_spans": row["deleted_spans"],
+        "deleted_comparisons": row["deleted_comparisons"],
     }
 
 

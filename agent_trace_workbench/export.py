@@ -61,11 +61,16 @@ _REPORT_HEADERS = [
     "agents",
     "avg_duration_ms",
     "total_duration_ms",
+    "cutoff",
+    "eligible_runs",
+    "protected_runs",
+    "last_cleanup_at",
 ]
 
 _SECTION_TOTAL = "total"
 _SECTION_SOURCE = "source"
 _SECTION_AGENT = "agent"
+_SECTION_RETENTION = "retention"
 
 
 def comparison_to_csv(report: CompareReport) -> str:
@@ -126,11 +131,13 @@ def report_to_csv(report: dict[str, Any]) -> str:
     """Render the library report as one CSV document.
 
     The document keeps every section in one file. A section column marks
-    each row as the library total, one source folder, or one agent. Leave
-    a cell empty when the section does not carry that metric.
+    each row as the library total, one source folder, one agent, or the
+    retention line. Leave a cell empty when the section does not carry
+    that metric.
     """
 
     totals = report["totals"]
+    retention = report.get("retention", {})
     with traced_operation(
         "export.report_csv", {"report.runs": totals["runs"], "report.agents": totals["agents"]}
     ):
@@ -148,6 +155,10 @@ def report_to_csv(report: dict[str, Any]) -> str:
                 "agents": totals["agents"],
                 "avg_duration_ms": "",
                 "total_duration_ms": totals["total_duration_ms"],
+                "cutoff": "",
+                "eligible_runs": "",
+                "protected_runs": "",
+                "last_cleanup_at": "",
             }
         ]
         for item in report.get("by_source", []):
@@ -165,6 +176,10 @@ def report_to_csv(report: dict[str, Any]) -> str:
                     "agents": item["agents"],
                     "avg_duration_ms": "",
                     "total_duration_ms": "",
+                    "cutoff": "",
+                    "eligible_runs": "",
+                    "protected_runs": "",
+                    "last_cleanup_at": "",
                 }
             )
         for item in report.get("by_agent", []):
@@ -182,8 +197,32 @@ def report_to_csv(report: dict[str, Any]) -> str:
                     "agents": "",
                     "avg_duration_ms": item["avg_duration_ms"],
                     "total_duration_ms": "",
+                    "cutoff": "",
+                    "eligible_runs": "",
+                    "protected_runs": "",
+                    "last_cleanup_at": "",
                 }
             )
+        rows.append(
+            {
+                "section": _SECTION_RETENTION,
+                "source_dir": "",
+                "agent_name": "",
+                "runs": "",
+                "ok_runs": "",
+                "failure_runs": "",
+                "labeled_runs": "",
+                "unlabeled_runs": "",
+                "tool_calls": "",
+                "agents": "",
+                "avg_duration_ms": "",
+                "total_duration_ms": "",
+                "cutoff": retention.get("cutoff", ""),
+                "eligible_runs": retention.get("eligible_runs", ""),
+                "protected_runs": retention.get("protected_runs", ""),
+                "last_cleanup_at": retention.get("last_cleanup_at") or "",
+            }
+        )
         return _to_csv(_REPORT_HEADERS, rows)
 
 

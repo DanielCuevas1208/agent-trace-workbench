@@ -29,12 +29,17 @@
     {% endif %}
 </section>
 
-<section class="section-block report-section report-section-last">
+<section class="section-block report-section">
     <div class="section-heading"><div><div class="eyebrow">BY AGENT</div><h2>Evidence per agent</h2></div><span class="section-meta">{{ report.totals.agents }} agents</span></div>
     {% if report.by_agent %}
     <div class="table-wrap"><table><thead><tr><th>Agent</th><th>Runs</th><th>Tool calls</th><th>Failures</th><th>Unlabeled</th><th>Avg duration</th></tr></thead><tbody>{% for item in report.by_agent %}<tr><td>{{ item.agent_name }}</td><td>{{ item.runs }}</td><td>{{ item.tool_calls }}</td><td {% if item.failure_runs %}class="row-alert"{% endif %}>{{ item.failure_runs }}</td><td {% if item.unlabeled_runs %}class="row-alert"{% endif %}>{{ item.unlabeled_runs }}</td><td>{{ item.avg_duration_ms }} ms</td></tr>{% endfor %}</tbody></table></div>
     {% else %}
     <div class="empty-state"><span class="empty-mark">+</span><h3>No agents yet</h3><p>The report appears once you record a run.</p></div>
     {% endif %}
+</section>
+
+<section class="section-block report-section report-section-last">
+    <div class="section-heading"><div><div class="eyebrow">RETENTION LINE</div><h2>Old evidence status</h2></div><span class="section-meta">{{ report.retention.older_than_days }} day policy</span></div>
+    <div class="table-wrap"><table><thead><tr><th>Eligible for cleanup</th><th>Protected by label</th><th>Cutoff</th><th>Last cleanup</th></tr></thead><tbody><tr><td class="mono">{{ report.retention.eligible_runs }}</td><td class="mono">{{ report.retention.protected_runs }}</td><td class="mono">{{ report.retention.cutoff }}</td><td class="mono">{{ report.retention.last_cleanup_at or 'never' }}</td></tr></tbody></table></div>
 </section>
 {% endblock %}

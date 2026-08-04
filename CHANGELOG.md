@@ -4,6 +4,31 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.3.0 - 2026-08-04
+
+### Added
+
+- A scheduled cleanup run through `atw cleanup`.
+- `atw cleanup --every <seconds>` command that repeats a sweep on an interval.
+- `atw cleanup --dry-run` command that previews a sweep without recording it.
+- `atw cleanup --history` command that lists the recorded cleanup sweeps.
+- A cleanup log table that records each scheduled sweep.
+- `POST /api/cleanup` route that runs a sweep or previews one with `dry_run`.
+- `GET /api/cleanup/history` route that lists the recorded sweeps.
+- A Cleanup history section on the Cleanup page.
+- A retention line in the library report that counts eligible and protected old runs.
+- `atw report --older-than` option that changes the retention line policy.
+- `GET /api/report?older_than_days=` option that changes the retention line policy.
+- A retention section row in the report CSV export.
+- Deterministic tests for the sweep, the history, the retention line, the CLI commands, and the API routes.
+
+### Changed
+
+- Version numbers moved to 1.3.0.
+- The report JSON now carries a `retention` block.
+- The report CSV now includes cutoff, eligible, protected, and last-cleanup columns.
+- The architecture now includes a cleanup log beside the retention layer.
+
 ## 1.2.0 - 2026-08-03
 
 ### Added

@@ -39,4 +39,12 @@
     <div class="empty-state"><span class="empty-mark">&#10003;</span><h3>Nothing to remove</h3><p>No run was ingested before the cutoff. Lower the cutoff or label runs to keep them.</p></div>
     {% endif %}
 </section>
+<section class="section-block cleanup-section cleanup-section-last">
+    <div class="section-heading"><div><div class="eyebrow">CLEANUP HISTORY</div><h2>Scheduled sweeps</h2></div><span class="section-meta">{{ history|length }} recorded</span></div>
+    {% if history %}
+    <div class="table-wrap"><table><thead><tr><th>Ran</th><th>Policy</th><th>Deleted</th><th>Protected</th><th>Sweep</th></tr></thead><tbody>{% for item in history %}<tr><td class="mono">{{ item.ran_at }} UTC</td><td>{{ item.older_than_days }} days</td><td>{{ item.deleted_runs }} runs</td><td>{{ item.protected_runs }}</td><td class="mono">{{ item.sweep_id }}</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}
+    <div class="empty-state"><span class="empty-mark">+</span><h3>No sweeps yet</h3><p>Run a scheduled cleanup to record it here.</p></div>
+    {% endif %}
+</section>
 {% endblock %}

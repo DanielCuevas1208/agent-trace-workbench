@@ -152,6 +152,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .row-alert { color: var(--coral); font-weight: 700; }
 .review-section { padding-top: 48px; }
 .cleanup-section { padding-top: 48px; }
+.cleanup-section-last { padding-bottom: 88px; }
 .retention-form input[type="number"] { width: 120px; min-height: 40px; padding: 0 12px; border: 1px solid var(--line); background: #fbfcfa; color: var(--ink); font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; outline: 0; }
 .retention-form input[type="number"]:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(44,111,159,.12); }
 .retention-form select { flex: 1; min-width: 200px; max-width: 280px; min-height: 40px; padding: 0 12px; border: 1px solid var(--line); background: #fbfcfa; color: var(--ink); font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; outline: 0; }

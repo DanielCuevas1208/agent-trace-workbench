@@ -14,6 +14,8 @@ Release 1.1 adds a CSV export for the library report and bulk label actions on t
 
 Release 1.2 adds per-run retention and cleanup of old evidence. Prune runs last ingested before a cutoff. Preview the match first. A label protects a run from cleanup.
 
+Release 1.3 adds a scheduled cleanup and a retention line to the library report. Run one sweep now, or loop one on an interval. The report shows how much old evidence remains.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -56,7 +58,7 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 - `models.py` defines the portable trace contract.
 - `handlers.py` loads local handler config and applies side-effect guards.
-- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It also computes the review list, applies bulk labels, builds the library report, and enforces the retention cutoff for cleanup.
+- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It also computes the review list, applies bulk labels, builds the library report, and enforces the retention cutoff for cleanup. A cleanup log records each scheduled sweep.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
@@ -753,6 +755,27 @@ curl.exe "http://127.0.0.1:8000/api/report"
 
 The JSON API returns the same document.
 
+The report carries a retention line. It shows how many runs a prune would remove, how many labels protect old runs, and when the last cleanup ran.
+
+```json
+"retention": {
+  "older_than_days": 30,
+  "cutoff": "2026-07-04T12:00:00+00:00",
+  "eligible_runs": 1,
+  "protected_runs": 1,
+  "last_cleanup_at": "2026-08-04 02:05:58"
+}
+```
+
+Test another policy with `--older-than` or the `older_than_days` query.
+
+```powershell
+python -m agent_trace_workbench.cli report --older-than 14
+curl.exe "http://127.0.0.1:8000/api/report?older_than_days=14"
+```
+
+The report page shows the retention line at the bottom.
+
 ## Report CSV
 
 Download the library report as one CSV document.
@@ -761,16 +784,17 @@ Download the library report as one CSV document.
 python -m agent_trace_workbench.cli report --format csv
 ```
 
-The document keeps every section in one file. A `section` column marks each row as the library total, one source folder, or one agent.
+The document keeps every section in one file. A `section` column marks each row as the library total, one source folder, one agent, or the retention line.
 
 ```text
-section,source_dir,agent_name,runs,ok_runs,failure_runs,labeled_runs,unlabeled_runs,tool_calls,agents,avg_duration_ms,total_duration_ms
-total,,,2,1,1,0,2,5,1,,500.0
-source,fixtures,,2,,1,,2,5,1,,
-agent,,catalog-assistant,2,,1,,2,5,,250.0,
+section,source_dir,agent_name,runs,ok_runs,failure_runs,labeled_runs,unlabeled_runs,tool_calls,agents,avg_duration_ms,total_duration_ms,cutoff,eligible_runs,protected_runs,last_cleanup_at
+total,,,2,1,1,0,2,5,1,,500.0,,,,
+source,fixtures,,2,,1,,2,5,1,,,,
+agent,,catalog-assistant,2,,1,,2,5,,250.0,,,,
+retention,,,,,,,,,,,,"2026-07-04T12:00:00+00:00",1,1,
 ```
 
-Empty cells mean the section does not carry that metric. The report page and the API offer the same download.
+Empty cells mean the section does not carry that metric. The retention row reports the old-evidence line. The report page and the API offer the same download.
 
 ```powershell
 curl.exe -o library-report.csv "http://127.0.0.1:8000/api/report?format=csv"
@@ -856,6 +880,68 @@ The Cleanup page shows the same preview. It lists the matching runs and their la
 
 `older_than_days` must be at least one. A label is the only protection a run has. An explicit `--run-id` still obeys that protection.
 
+## Scheduled cleanup
+
+Run the retention policy on a schedule. The cleanup command runs one sweep now, or repeats one on an interval.
+
+```powershell
+python -m agent_trace_workbench.cli cleanup
+```
+
+The command applies the default 30-day policy. It records each sweep in the local cleanup log.
+
+```json
+{
+  "older_than_days": 30,
+  "cutoff": "2026-07-04T12:00:00+00:00",
+  "keep_labeled": true,
+  "dry_run": false,
+  "protected_runs": 1,
+  "deleted_runs": 1,
+  "deleted_spans": 4,
+  "deleted_comparisons": 0,
+  "run_ids": ["run-candidate-001"],
+  "sweep_id": "33f26fa21786",
+  "ran_at": "2026-08-04 02:05:58"
+}
+```
+
+Preview a sweep with `--dry-run`. A dry run never records history.
+
+```powershell
+python -m agent_trace_workbench.cli cleanup --older-than 30 --dry-run
+```
+
+Schedule a sweep with `--every`.
+
+```powershell
+python -m agent_trace_workbench.cli cleanup --older-than 30 --every 3600
+```
+
+The command sweeps once, waits the interval, and sweeps again. Stop it with Ctrl+C. Use cron or Task Scheduler for a fixed schedule.
+
+List the recorded sweeps.
+
+```powershell
+python -m agent_trace_workbench.cli cleanup --history
+```
+
+The JSON API runs the same sweep.
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/api/cleanup `
+  -H "content-type: application/json" `
+  -d "{\"older_than_days\": 30}"
+```
+
+List the history over the API.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/cleanup/history"
+```
+
+The Cleanup page shows the recent sweeps below the preview table.
+
 ## Trace contract
 
 A trace requires `trace_id`, `run_id`, `agent_name`, and `spans`.
@@ -878,7 +964,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, reports, and retention cleanup. It covers the CLI, the API, and collector export.
+The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, reports, retention cleanup, and scheduled cleanup. It covers the CLI, the API, and collector export.
 
 Run the checks with these commands.
 
@@ -889,7 +975,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 203 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 227 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -914,6 +1000,14 @@ A label protects a run from age-based cleanup. Remove the label to make the run 
 A prune deletes the run, its spans, and any saved comparison that references it. Export important runs before a prune.
 
 The cleanup page deletes every run in the preview table. It does not support per-row selection.
+
+A scheduled cleanup runs only while the cleanup command runs. Stop the process to pause the schedule.
+
+A dry-run sweep never records history. Use the real sweep to keep the log current.
+
+The cleanup history records policy and counts. It does not store the deleted traces.
+
+The report retention line counts runs under the current policy. It uses `older_than_days` from the request or the 30-day default.
 
 The report CSV keeps every section in one file. Spreadsheet users filter rows by the section column.
 
@@ -960,13 +1054,14 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 1.0 complete: add a review list for runs without labels and a folder-level summary report.
 - Release 1.1 complete: add a CSV export for the library report and bulk label actions on the review list.
 - Release 1.2 complete: add per-run retention and cleanup of old evidence.
-- Release 1.3: add a scheduled cleanup run and a retention line to the library report.
+- Release 1.3 complete: add a scheduled cleanup run and a retention line to the library report.
+- Release 1.4: add a server-side sweep scheduler and a failure trend line to the dashboard.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline and candidate traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, reports, and retention cleanup.
+`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, reports, retention cleanup, and scheduled cleanup.
 
 `static/` and `templates/` contain the presentation layer.
 
