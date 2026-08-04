@@ -131,6 +131,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     review.add_argument("--limit", type=int, default=20)
     review.add_argument(
+        "--status",
+        choices=["all", "ok", "error"],
+        default="all",
+        help="Show only healthy or failed unlabeled runs",
+    )
+    review.add_argument(
         "--label",
         default=None,
         help="Bulk label the listed runs, or every unreviewed run",
@@ -421,10 +427,12 @@ def main() -> None:
         else:
             print(json.dumps(store.list_comparisons(args.limit), indent=2))
     elif args.command == "review":
+        review_status = None if args.status == "all" else args.status
         if args.label is not None:
             _validate_annotation("label", args.label)
             run_ids = args.run_ids or [
-                run["run_id"] for run in store.unreviewed_runs(100)
+                run["run_id"]
+                for run in store.unreviewed_runs(100, status=review_status)
             ]
             if not run_ids:
                 raise SystemExit("No runs to label")
@@ -433,7 +441,11 @@ def main() -> None:
         elif args.run_ids:
             raise SystemExit("Provide --label together with --run-id")
         else:
-            print(json.dumps(store.unreviewed_runs(args.limit), indent=2))
+            print(
+                json.dumps(
+                    store.unreviewed_runs(args.limit, status=review_status), indent=2
+                )
+            )
     elif args.command == "report":
         if args.older_than_days < 1:
             raise SystemExit("--older-than must be at least 1 day")

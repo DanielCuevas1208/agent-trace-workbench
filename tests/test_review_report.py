@@ -43,6 +43,41 @@ def test_store_unreviewed_runs_excludes_labeled(tmp_path, baseline, candidate):
     assert reviewed[0]["tool_count"] == 3
 
 
+def test_store_review_queue_prioritizes_failures_and_includes_context(
+    tmp_path, baseline, candidate
+):
+    store = TraceStore(tmp_path / "review.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+
+    reviewed = store.unreviewed_runs()
+
+    assert [run["run_id"] for run in reviewed] == [
+        "run-candidate-001",
+        "run-baseline-001",
+    ]
+    assert [item["name"] for item in reviewed[0]["error_summary"]] == [
+        "agent.run",
+        "reserve_inventory",
+    ]
+    assert reviewed[1]["error_summary"] == []
+
+
+def test_store_review_queue_filters_by_status(tmp_path, baseline, candidate):
+    store = TraceStore(tmp_path / "review.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+
+    assert [run["run_id"] for run in store.unreviewed_runs(status="error")] == [
+        "run-candidate-001"
+    ]
+    assert [run["run_id"] for run in store.unreviewed_runs(status="ok")] == [
+        "run-baseline-001"
+    ]
+    with pytest.raises(ValueError, match="status"):
+        store.unreviewed_runs(status="unset")
+
+
 def test_store_unreviewed_runs_returns_empty_when_all_labeled(tmp_path, baseline):
     store = TraceStore(tmp_path / "review.db")
     store.ingest(baseline, "baseline.json")
@@ -153,6 +188,21 @@ def test_api_lists_review_runs(tmp_path, baseline, candidate):
     }
 
 
+def test_api_filters_review_queue_and_returns_failure_context(tmp_path, baseline, candidate):
+    client = TestClient(create_app(tmp_path / "api.db"))
+    client.post("/api/traces", json=baseline.as_jsonable())
+    client.post("/api/traces", json=candidate.as_jsonable())
+
+    response = client.get("/api/review", params={"status": "error"})
+
+    assert response.status_code == 200
+    assert [run["run_id"] for run in response.json()] == ["run-candidate-001"]
+    assert response.json()[0]["error_summary"][1]["message"] == (
+        "reservation window expired"
+    )
+    assert client.get("/api/review", params={"status": "unset"}).status_code == 422
+
+
 def test_api_returns_library_report(tmp_path, baseline, candidate):
     client = TestClient(create_app(tmp_path / "api.db"))
     client.post("/api/traces", json=baseline.as_jsonable())
@@ -175,6 +225,20 @@ def test_review_page_shows_unlabeled_runs(tmp_path, baseline, candidate):
 
     assert "Unlabeled runs" in page
     assert "run-candidate-001" in page
+    assert "run-baseline-001" not in page
+
+
+def test_review_page_shows_failure_context_and_status_filters(tmp_path, baseline, candidate):
+    client = TestClient(create_app(tmp_path / "api.db"))
+    client.post("/api/traces", json=baseline.as_jsonable())
+    client.post("/api/traces", json=candidate.as_jsonable())
+
+    page = client.get("/review", params={"status": "error"}).text
+
+    assert "Failed runs" in page
+    assert "agent.run" in page
+    assert "agent.run ended with status error" in page
+    assert "status=error" in page
     assert "run-baseline-001" not in page
 
 
@@ -204,6 +268,21 @@ def test_cli_review_lists_unlabeled_runs(tmp_path, baseline, candidate, monkeypa
 
     results = json.loads(capsys.readouterr().out)
     assert [run["run_id"] for run in results] == ["run-candidate-001"]
+
+
+def test_cli_review_filters_failed_runs(tmp_path, baseline, candidate, monkeypatch, capsys):
+    store = TraceStore(tmp_path / "cli.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+
+    monkeypatch.setattr(
+        "sys.argv", ["atw", "--db", str(tmp_path / "cli.db"), "review", "--status", "error"]
+    )
+    main()
+
+    results = json.loads(capsys.readouterr().out)
+    assert [run["run_id"] for run in results] == ["run-candidate-001"]
+    assert results[0]["error_summary"][0]["name"] == "agent.run"
 
 
 def test_cli_report_prints_library_summary(tmp_path, baseline, candidate, monkeypatch, capsys):

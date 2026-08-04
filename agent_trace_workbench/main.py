@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from html import escape
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -229,8 +229,9 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     def review_page(
         request: Request,
         limit: int = Query(default=50, ge=1, le=200),
+        status: Literal["ok", "error"] | None = Query(default=None),
     ) -> Any:
-        runs = app.state.store.unreviewed_runs(limit)
+        runs = app.state.store.unreviewed_runs(limit, status=status)
         totals = app.state.store.library_report()["totals"]
         return render_template(
             request,
@@ -239,6 +240,8 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 "runs": runs,
                 "totals": totals,
                 "limit": limit,
+                "status": status or "",
+                "failure_count": sum(run["status"] == "error" for run in runs),
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
                 "scheduler": _scheduler_status(app),
@@ -304,8 +307,9 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/review")
     def api_review(
         limit: int = Query(default=20, ge=1, le=100),
+        status: Literal["ok", "error"] | None = Query(default=None),
     ) -> list[dict[str, Any]]:
-        return app.state.store.unreviewed_runs(limit)
+        return app.state.store.unreviewed_runs(limit, status=status)
 
     @app.post("/api/review/labels")
     def api_bulk_label(payload: BulkLabelRequest) -> dict[str, Any]:
