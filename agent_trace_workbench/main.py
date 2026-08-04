@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from html import escape
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
@@ -18,7 +19,7 @@ from fastapi.templating import Jinja2Templates
 from . import __version__
 from .collector import export_run_to_collector
 from .compare import compare_runs
-from .export import comparison_to_csv, report_to_csv, run_tools_to_csv
+from .export import comparison_to_csv, report_to_csv, run_tools_to_csv, trend_to_csv
 from .handlers import ReplayPolicy, load_handler_config
 from .models import (
     BulkLabelRequest,
@@ -73,16 +74,23 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     def dashboard(
         request: Request,
         q: str | None = Query(default=None, max_length=200),
+        agent: str | None = Query(default=None, max_length=200),
     ) -> Any:
         runs = app.state.store.search_runs(q) if q else app.state.store.list_runs()
+        selected_agent = agent or ""
         return render_template(
             request,
             "dashboard.html",
             {
                 "runs": runs,
                 "stats": _stats(runs),
-                "trend": _trend_chart(app.state.store.failure_trend()),
+                "trend": _trend_chart(
+                    app.state.store.failure_trend(agent_name=selected_agent or None)
+                ),
                 "query": q or "",
+                "trend_agents": app.state.store.trend_agents(),
+                "selected_agent": selected_agent,
+                "trend_links": _trend_links(selected_agent),
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
                 "scheduler": _scheduler_status(app),
@@ -327,11 +335,26 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     def api_cleanup_schedule() -> dict[str, Any]:
         return _scheduler_status(app)
 
-    @app.get("/api/trend")
+    @app.get("/api/trend", response_model=None)
     def api_trend(
         days: int = Query(default=14, ge=1, le=90),
-    ) -> list[dict[str, Any]]:
-        return app.state.store.failure_trend(days)
+        agent: str | None = Query(default=None, max_length=200),
+        export_format: str = Query(default="json", alias="format"),
+    ) -> Response | list[dict[str, Any]]:
+        trend = app.state.store.failure_trend(days, agent_name=agent)
+        if export_format == "csv":
+            return _download_response(
+                trend_to_csv(trend, agent_name=agent or ""),
+                "failure-trend.csv",
+                "text/csv; charset=utf-8",
+            )
+        if export_format != "json":
+            raise HTTPException(status_code=400, detail="format must be 'json' or 'csv'")
+        return trend
+
+    @app.get("/api/trend/agents")
+    def api_trend_agents() -> list[str]:
+        return app.state.store.trend_agents()
 
     @app.get("/api/report", response_model=None)
     def api_report(
@@ -723,6 +746,22 @@ def _trend_chart(trend: list[dict[str, Any]]) -> dict[str, Any]:
         "labels": labels,
         "active_days": sum(1 for item in trend if item["runs"] > 0),
         "totals": totals,
+    }
+
+
+def _trend_links(selected_agent: str) -> dict[str, str]:
+    """Return the JSON and CSV export links for the dashboard trend panel.
+
+    The links keep the active agent filter, so a download matches what
+    the panel draws. Agent names are URL-encoded because they may contain
+    spaces or punctuation.
+    """
+
+    prefix = f"?agent={quote(selected_agent)}" if selected_agent else ""
+    join = "&" if prefix else "?"
+    return {
+        "json": f"/api/trend{prefix}",
+        "csv": f"/api/trend{prefix}{join}format=csv",
     }
 
 

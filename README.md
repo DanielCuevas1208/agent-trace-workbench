@@ -18,6 +18,8 @@ Release 1.3 adds a scheduled cleanup and a retention line to the library report.
 
 Release 1.4 adds a server-side sweep scheduler and a failure trend line on the dashboard. The server can sweep old evidence on an interval while it runs. The dashboard shows whether failures rise or fall across the last 14 days.
 
+Release 1.5 adds a CSV export for the failure trend and an agent-level trend filter on the dashboard. Filter the chart to one agent. Download the same series as CSV from the panel, the API, or the CLI.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -65,7 +67,7 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
 - `compare.py` aligns tool calls by recorded position and reports field-level deltas.
-- `export.py` renders comparisons, run tool calls, and library reports as CSV files.
+- `export.py` renders comparisons, run tool calls, library reports, and failure trends as CSV files.
 - `collector.py` posts recorded runs to a local collector over OTLP HTTP JSON.
 - `main.py` serves the interface and the JSON API.
 - `scheduler.py` runs server-side retention sweeps on an interval.
@@ -89,7 +91,7 @@ python -m pip install -r requirements.txt
 
 ## Run the sample
 
-Load both bundled traces.
+Load the bundled traces.
 
 ```powershell
 python -m agent_trace_workbench.cli ingest fixtures/run_baseline.json
@@ -105,6 +107,14 @@ uvicorn agent_trace_workbench.main:app --reload
 Open `http://127.0.0.1:8000` in a browser.
 
 The dashboard shows both runs. The candidate includes a reservation failure. The trend panel draws the daily failure rate for the recorded evidence.
+
+Load the second agent to exercise the trend filter.
+
+```powershell
+python -m agent_trace_workbench.cli ingest fixtures/run_support.json
+```
+
+The dashboard now lists two agents. Filter the trend panel to either one.
 
 ## Sample output
 
@@ -240,6 +250,79 @@ The response lists one bucket per day. Empty days stay in the window with zero c
 ```
 
 The dashboard panel shows window totals for runs, failures, and the failure rate.
+
+## Trend agent filter
+
+Filter the trend to one agent from the dashboard.
+
+Choose an agent in the drop-down above the chart. The panel redraws with that agent's runs only. Window totals match the filtered series.
+
+The API accepts the same filter.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/trend?agent=catalog-assistant"
+```
+
+The response keeps one bucket per day for that agent.
+
+```json
+[
+  {
+    "day": "2026-07-31",
+    "runs": 2,
+    "failures": 1,
+    "failure_rate": 0.5
+  }
+]
+```
+
+List the agents that have recorded runs.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/trend/agents"
+```
+
+Use the CLI for scripts.
+
+```powershell
+python -m agent_trace_workbench.cli trend --agent catalog-assistant --days 14
+```
+
+The `--agents` flag prints the same list.
+
+```powershell
+python -m agent_trace_workbench.cli trend --agents
+```
+
+## Trend CSV export
+
+Download the trend as a CSV document.
+
+```powershell
+curl.exe -o failure-trend.csv "http://127.0.0.1:8000/api/trend?format=csv"
+```
+
+The file lists one row per day. The agent column repeats the active filter. It stays empty for the all-agents view.
+
+```text
+day,agent_name,runs,failures,failure_rate
+2026-07-31,,2,1,0.5
+```
+
+Print the same file from the CLI.
+
+```powershell
+python -m agent_trace_workbench.cli trend --format csv
+```
+
+Keep the agent filter in the export.
+
+```powershell
+curl.exe -o catalog.csv "http://127.0.0.1:8000/api/trend?agent=catalog-assistant&format=csv"
+python -m agent_trace_workbench.cli trend --agent catalog-assistant --format csv
+```
+
+The dashboard panel links to both downloads. The links keep the active agent.
 
 ## Saved comparisons
 
@@ -1036,7 +1119,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, reports, retention cleanup, and scheduled cleanup. It covers the CLI, the API, collector export, the server scheduler, and the dashboard failure trend.
+The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, reports, retention cleanup, and scheduled cleanup. It covers the CLI, the API, collector export, the server scheduler, and the dashboard failure trend, including the agent filter and the CSV export.
 
 Run the checks with these commands.
 
@@ -1047,7 +1130,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 249 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 268 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -1082,6 +1165,12 @@ A dry-run sweep never records history. Use the real sweep to keep the log curren
 The failure trend groups by the calendar day a run started. It uses the UTC day.
 
 The trend counts a run by its recorded status. A run with any error span counts as a failure.
+
+The trend agent filter matches the exact recorded agent name.
+
+The trend CSV repeats the active agent in every row. The all-agents view leaves that cell empty.
+
+The trend export lists one row per day. It does not add a window total row.
 
 The cleanup history records policy and counts. It does not store the deleted traces.
 
@@ -1134,13 +1223,14 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 1.2 complete: add per-run retention and cleanup of old evidence.
 - Release 1.3 complete: add a scheduled cleanup run and a retention line to the library report.
 - Release 1.4 complete: add a server-side sweep scheduler and a failure trend line on the dashboard.
-- Release 1.5: add a CSV export for the failure trend and an agent-level trend filter on the dashboard.
+- Release 1.5 complete: add a CSV export for the failure trend and an agent-level trend filter on the dashboard.
+- Release 1.6: add a per-day trend drill-down and a window selector on the dashboard chart.
 
 ## Repository map
 
-`fixtures/` contains meaningful baseline and candidate traces. It also contains a handler config and demo scripts.
+`fixtures/` contains meaningful baseline, candidate, and second-agent traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, reports, retention cleanup, scheduled cleanup, the server scheduler, and the failure trend.
+`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, reports, retention cleanup, scheduled cleanup, the server scheduler, and the failure trend, including the agent filter and the CSV export.
 
 `static/` and `templates/` contain the presentation layer.
 

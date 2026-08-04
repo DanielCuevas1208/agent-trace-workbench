@@ -4,6 +4,29 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.5.0 - 2026-08-04
+
+### Added
+
+- A CSV export for the daily failure trend through the CLI and the API.
+- `atw trend` command that prints the failure buckets for a window.
+- `atw trend --agent <name>` option that restricts the trend to one agent.
+- `atw trend --format csv` option that prints the trend as a CSV document.
+- `atw trend --agents` option that lists the agent names available for filtering.
+- `GET /api/trend?agent=<name>` option that filters the trend buckets.
+- `GET /api/trend?format=csv` route that returns the trend as a CSV attachment.
+- `GET /api/trend/agents` route that lists the distinct agent names.
+- An agent filter on the dashboard trend panel with JSON and CSV download links.
+- A second sample agent trace that shows the filter on a multi-agent library.
+- Deterministic tests for the agent filter, the CSV export, the CLI commands, and the API routes.
+
+### Changed
+
+- Version numbers moved to 1.5.0.
+- The failure trend now accepts one agent name, so a reviewer can isolate one producer.
+- The dashboard trend panel keeps the active agent in its export links.
+- The architecture now includes a trend filter and trend CSV export.
+
 ## 1.4.0 - 2026-08-03
 
 ### Added

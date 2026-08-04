@@ -699,15 +699,39 @@ class TraceStore:
             },
         }
 
-    def failure_trend(self, days: int = 14) -> list[dict[str, Any]]:
+    def trend_agents(self) -> list[str]:
+        """Return the distinct agent names in the library, sorted.
+
+        The dashboard uses this list for the agent-level trend filter.
+        Empty agent names never appear, because every stored run records
+        a producer.
+        """
+
+        with traced_operation("storage.trend_agents", {"db.path": self.db_path.name}):
+            with self._connect() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT DISTINCT agent_name FROM runs
+                    WHERE agent_name != ''
+                    ORDER BY agent_name ASC
+                    """
+                ).fetchall()
+                return [row["agent_name"] for row in rows]
+
+    def failure_trend(
+        self,
+        days: int = 14,
+        *,
+        agent_name: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Return a daily failure trend over the last N days.
 
         The trend groups runs by the calendar day (UTC) when they
         started. Each bucket reports the total runs and how many of them
-        failed. The dashboard draws this series as a line, so a reviewer
-        can see whether failures rise or fall across a release. Empty
-        days stay in the window with zero counts, so the line has a
-        stable time axis.
+        failed. Pass agent_name to restrict the trend to one agent, so a
+        reviewer can tell which producer drives a rise or fall. The
+        dashboard draws this series as a line. Empty days stay in the
+        window with zero counts, so the line has a stable time axis.
         """
 
         if days < 1:
@@ -715,20 +739,24 @@ class TraceStore:
         safe_days = min(days, 90)
         start_day = (_now_utc() - timedelta(days=safe_days - 1)).date()
         start_text = start_day.strftime("%Y-%m-%d")
+        query = """
+            SELECT substr(started_at, 1, 10) AS day,
+                   COUNT(*) AS runs,
+                   COALESCE(SUM(status = 'error'), 0) AS failures
+            FROM runs
+            WHERE substr(started_at, 1, 10) >= ?
+        """
+        params: list[Any] = [start_text]
+        if agent_name:
+            query += " AND agent_name = ?"
+            params.append(agent_name)
+        query += """
+            GROUP BY day
+            ORDER BY day ASC
+        """
         with traced_operation("storage.failure_trend", {"trend.days": safe_days}):
             with self._connect() as connection:
-                rows = connection.execute(
-                    """
-                    SELECT substr(started_at, 1, 10) AS day,
-                           COUNT(*) AS runs,
-                           COALESCE(SUM(status = 'error'), 0) AS failures
-                    FROM runs
-                    WHERE substr(started_at, 1, 10) >= ?
-                    GROUP BY day
-                    ORDER BY day ASC
-                    """,
-                    (start_text,),
-                ).fetchall()
+                rows = connection.execute(query, params).fetchall()
         counts = {row["day"]: (row["runs"], row["failures"]) for row in rows}
         buckets: list[dict[str, Any]] = []
         for offset in range(safe_days):

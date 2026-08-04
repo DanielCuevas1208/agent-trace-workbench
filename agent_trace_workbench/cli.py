@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .collector import export_run_to_collector
 from .compare import compare_runs
-from .export import comparison_to_csv, report_to_csv, run_tools_to_csv
+from .export import comparison_to_csv, report_to_csv, run_tools_to_csv, trend_to_csv
 from .handlers import ReplayPolicy, load_handler_config
 from .ingestion import DirectoryWatcher, watch_directory
 from .models import TraceDocument
@@ -132,6 +132,32 @@ def build_parser() -> argparse.ArgumentParser:
         default=30,
         dest="older_than_days",
         help="Retention line age in days (default: 30)",
+    )
+
+    trend = subparsers.add_parser(
+        "trend", help="Show the daily failure trend"
+    )
+    trend.add_argument(
+        "--days",
+        type=int,
+        default=14,
+        help="Window size in days (default: 14)",
+    )
+    trend.add_argument(
+        "--agent",
+        default=None,
+        help="Restrict the trend to one agent name",
+    )
+    trend.add_argument(
+        "--format",
+        choices=["json", "csv"],
+        default="json",
+        help="Output format",
+    )
+    trend.add_argument(
+        "--agents",
+        action="store_true",
+        help="List the agent names available for filtering",
     )
 
     annotate = subparsers.add_parser(
@@ -362,6 +388,17 @@ def main() -> None:
             print(report_to_csv(report), end="")
         else:
             print(json.dumps(report, indent=2))
+    elif args.command == "trend":
+        if args.agents:
+            print(json.dumps(store.trend_agents(), indent=2))
+        elif args.days < 1 or args.days > 90:
+            raise SystemExit("--days must be between 1 and 90")
+        else:
+            trend = store.failure_trend(args.days, agent_name=args.agent)
+            if args.format == "csv":
+                print(trend_to_csv(trend, agent_name=args.agent or ""), end="")
+            else:
+                print(json.dumps(trend, indent=2))
     elif args.command == "annotate":
         if args.clear:
             label = ""

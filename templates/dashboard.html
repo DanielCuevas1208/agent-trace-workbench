@@ -2,7 +2,7 @@
 {% block title %}Runs | Agent Trace Workbench{% endblock %}
 {% block content %}
 <section class="hero">
-    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 1.4</div>
+    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 1.5</div>
     <h1>See what your agent did.<br><em>Replay why it did it.</em></h1>
     <p class="hero-copy">Ingest local JSON traces, import OTLP exports, watch a folder, inspect every tool boundary, replay recorded work, compare runs, label evidence for review, and read a folder-level library report without a hosted service.</p>
     <div class="hero-actions">
@@ -50,10 +50,22 @@
 </section>
 
 <section id="trend" class="section-block trend-section">
-    <div class="section-heading"><div><div class="eyebrow">03 / FAILURE TREND</div><h2>Do failures rise or fall?</h2></div><span class="section-meta">last {{ trend.days }} days · {{ trend.active_days }} with activity</span></div>
+    <div class="section-heading"><div><div class="eyebrow">03 / FAILURE TREND</div><h2>Do failures rise or fall?</h2></div><span class="section-meta">last {{ trend.days }} days · {{ trend.active_days }} with activity{% if selected_agent %} · {{ selected_agent }}{% endif %}</span></div>
+    {% if trend_agents %}
+    <form method="get" action="/" class="trend-filter" role="search">
+        <label class="visually-hidden" for="trend-agent">Filter trend by agent</label>
+        <select id="trend-agent" name="agent">
+            <option value="">All agents</option>
+            {% for agent in trend_agents %}<option value="{{ agent }}"{% if agent == selected_agent %} selected{% endif %}>{{ agent }}</option>{% endfor %}
+        </select>
+        {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
+        <button class="button button-primary" type="submit">Filter</button>
+        {% if selected_agent %}<a class="button button-quiet" href="/#trend">Clear</a>{% endif %}
+    </form>
+    {% endif %}
     {% if trend.active_days %}
     <div class="panel trend-panel">
-        <div class="trend-chart" role="img" aria-label="Daily failure rate over the last {{ trend.days }} days">
+        <div class="trend-chart" role="img" aria-label="Daily failure rate over the last {{ trend.days }} days{% if selected_agent %} for {{ selected_agent }}{% endif %}">
             <svg viewBox="0 0 {{ trend.width }} {{ trend.height }}" preserveAspectRatio="none" class="trend-svg">
                 <polyline points="{% for point in trend.points %}{{ point.x }},{{ point.y }} {% endfor %}" class="trend-line" vector-effect="non-scaling-stroke"></polyline>
                 {% for point in trend.points %}<circle cx="{{ point.x }}" cy="{{ point.y }}" r="3.2" class="trend-dot" vector-effect="non-scaling-stroke"></circle>{% endfor %}
@@ -66,11 +78,12 @@
             <span><strong>{{ trend.totals.runs }}</strong> runs recorded</span>
             <span class="trend-failures"><strong>{{ trend.totals.failures }}</strong> failure runs</span>
             <span><strong>{{ "%.1f"|format(trend.totals.failure_rate * 100) }}%</strong> failure rate</span>
-            <a class="button button-quiet" href="/api/trend">JSON <span aria-hidden="true">&#8594;</span></a>
+            <a class="button button-quiet" href="{{ trend_links.json }}">JSON <span aria-hidden="true">&#8594;</span></a>
+            <a class="button button-quiet" href="{{ trend_links.csv }}">CSV <span aria-hidden="true">&#8594;</span></a>
         </div>
     </div>
     {% else %}
-    <div class="empty-state"><span class="empty-mark">+</span><h3>No runs in this window</h3><p>Record a run and the dashboard draws its daily failure line.</p></div>
+    <div class="empty-state"><span class="empty-mark">+</span><h3>{% if selected_agent %}No runs for {{ selected_agent }} in this window{% else %}No runs in this window{% endif %}</h3><p>Record a run and the dashboard draws its daily failure line.</p></div>
     {% endif %}
 </section>
 
