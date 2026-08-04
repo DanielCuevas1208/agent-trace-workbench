@@ -171,4 +171,32 @@
             }
         });
     }
+
+    const pruneForm = document.querySelector("#prune-form");
+    if (pruneForm) {
+        const status = document.querySelector("#prune-status");
+        const retentionForm = document.querySelector("#retention-form");
+        pruneForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            if (!window.confirm("Delete every run in the preview table? This cannot be undone.")) return;
+            status.className = "form-status";
+            status.textContent = "Pruning...";
+            try {
+                const days = Number(retentionForm.querySelector("#older-than-days").value);
+                const keepLabeled = retentionForm.querySelector("#keep-labeled-select").value === "1";
+                const response = await fetch("/api/prune", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ older_than_days: days, keep_labeled: keepLabeled, dry_run: false }),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || "Prune could not run.");
+                status.textContent = `Deleted ${result.deleted_runs} run${result.deleted_runs === 1 ? "" : "s"} and ${result.deleted_spans} spans.`;
+                window.location.reload();
+            } catch (error) {
+                status.className = "form-status error";
+                status.textContent = error.message;
+            }
+        });
+    }
 })();
