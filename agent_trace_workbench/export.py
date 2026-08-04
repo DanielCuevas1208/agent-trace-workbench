@@ -1,4 +1,4 @@
-"""CSV rendering for run tool calls, comparison reports, and library reports.
+"""CSV rendering for run tool calls, comparison reports, and reports.
 
 The workbench uses the Python csv module so that every field is escaped
 correctly. Arguments and results keep their structured values as compact
@@ -66,6 +66,8 @@ _REPORT_HEADERS = [
     "protected_runs",
     "last_cleanup_at",
 ]
+
+_TREND_HEADERS = ["day", "agent_name", "runs", "failures", "failure_rate"]
 
 _SECTION_TOTAL = "total"
 _SECTION_SOURCE = "source"
@@ -224,6 +226,31 @@ def report_to_csv(report: dict[str, Any]) -> str:
             }
         )
         return _to_csv(_REPORT_HEADERS, rows)
+
+
+def trend_to_csv(trend: list[dict[str, Any]], agent_name: str = "") -> str:
+    """Render a daily failure trend as a CSV document.
+
+    The document lists one row per day. The agent_name cell repeats the
+    active filter, so a filtered file stays self-describing. Leave the
+    cell empty for the all-agents view.
+    """
+
+    with traced_operation(
+        "export.trend_csv", {"trend.days": len(trend), "trend.agent": agent_name}
+    ):
+        rows: list[dict[str, Any]] = []
+        for bucket in trend:
+            rows.append(
+                {
+                    "day": bucket["day"],
+                    "agent_name": agent_name,
+                    "runs": bucket["runs"],
+                    "failures": bucket["failures"],
+                    "failure_rate": _number(bucket.get("failure_rate")),
+                }
+            )
+        return _to_csv(_TREND_HEADERS, rows)
 
 
 def _to_csv(headers: list[str], rows: list[dict[str, Any]]) -> str:

@@ -60,3 +60,8 @@ def baseline() -> TraceDocument:
 @pytest.fixture
 def candidate() -> TraceDocument:
     return TraceDocument.model_validate_json((FIXTURES / "run_candidate.json").read_text())
+
+
+@pytest.fixture
+def support() -> TraceDocument:
+    return TraceDocument.model_validate_json((FIXTURES / "run_support.json").read_text())

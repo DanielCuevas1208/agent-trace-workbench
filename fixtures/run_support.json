@@ -1,0 +1,69 @@
+{
+  "trace_id": "trace-demo-003",
+  "run_id": "run-support-001",
+  "agent_name": "support-assistant",
+  "agent_version": "1.0.0",
+  "started_at": "2026-07-31T10:00:00+00:00",
+  "ended_at": "2026-07-31T10:00:00.190000+00:00",
+  "metadata": {
+    "scenario": "refund-dispatch",
+    "environment": "fixture"
+  },
+  "spans": [
+    {
+      "span_id": "span-agent-201",
+      "name": "agent.run",
+      "kind": "agent",
+      "start_time": "2026-07-31T10:00:00+00:00",
+      "end_time": "2026-07-31T10:00:00.190000+00:00",
+      "status": "ok",
+      "attributes": {"request.kind": "refund_request"},
+      "sequence": 0
+    },
+    {
+      "span_id": "span-tool-201",
+      "name": "lookup_order",
+      "kind": "tool",
+      "parent_span_id": "span-agent-201",
+      "start_time": "2026-07-31T10:00:00.010000+00:00",
+      "end_time": "2026-07-31T10:00:00.060000+00:00",
+      "status": "ok",
+      "attributes": {"tool.version": "fixture-1"},
+      "sequence": 1,
+      "tool_call": {
+        "name": "lookup_order",
+        "arguments": {"order_id": "ord-8842"},
+        "result": {"order_id": "ord-8842", "customer": "case-313", "total": 129.0},
+        "outcome": "success"
+      }
+    },
+    {
+      "span_id": "span-llm-201",
+      "name": "agent.plan",
+      "kind": "llm",
+      "parent_span_id": "span-agent-201",
+      "start_time": "2026-07-31T10:00:00.065000+00:00",
+      "end_time": "2026-07-31T10:00:00.095000+00:00",
+      "status": "ok",
+      "attributes": {"model": "local-fixture"},
+      "sequence": 2
+    },
+    {
+      "span_id": "span-tool-202",
+      "name": "issue_refund",
+      "kind": "tool",
+      "parent_span_id": "span-agent-201",
+      "start_time": "2026-07-31T10:00:00.100000+00:00",
+      "end_time": "2026-07-31T10:00:00.150000+00:00",
+      "status": "ok",
+      "attributes": {"tool.version": "fixture-1"},
+      "sequence": 3,
+      "tool_call": {
+        "name": "issue_refund",
+        "arguments": {"order_id": "ord-8842", "amount": 129.0},
+        "result": {"refund_id": "ref-5521", "status": "queued"},
+        "outcome": "success"
+      }
+    }
+  ]
+}

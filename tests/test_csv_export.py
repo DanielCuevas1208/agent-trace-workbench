@@ -4,11 +4,17 @@ import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 
 from agent_trace_workbench.cli import main
 from agent_trace_workbench.compare import compare_runs
-from agent_trace_workbench.export import comparison_to_csv, report_to_csv, run_tools_to_csv
+from agent_trace_workbench.export import (
+    comparison_to_csv,
+    report_to_csv,
+    run_tools_to_csv,
+    trend_to_csv,
+)
 from agent_trace_workbench.main import create_app
 from agent_trace_workbench.storage import TraceStore
 
@@ -20,6 +26,15 @@ def _read_csv(text: str) -> list[dict[str, str]]:
 def _seed(client, baseline, candidate) -> None:
     client.post("/api/traces", json=baseline.as_jsonable())
     client.post("/api/traces", json=candidate.as_jsonable())
+
+
+def _set_started(store: TraceStore, run_id: str, days_ago: int) -> None:
+    day = (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%d")
+    with sqlite3.connect(store.db_path) as connection:
+        connection.execute(
+            "UPDATE runs SET started_at = ?, ended_at = ? WHERE run_id = ?",
+            (f"{day}T09:00:00+00:00", f"{day}T09:00:10+00:00", run_id),
+        )
 
 
 def test_comparison_csv_has_headers_and_field_diffs(baseline, candidate):
@@ -251,3 +266,142 @@ def test_report_csv_has_retention_row(tmp_path, baseline, candidate):
     assert retention[0]["protected_runs"] == "0"
     assert retention[0]["cutoff"] != ""
     assert retention[0]["last_cleanup_at"] == ""
+
+
+def test_trend_csv_has_headers_and_days(tmp_path, baseline, candidate):
+    store = TraceStore(tmp_path / "api.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, candidate.run_id, 2)
+
+    rows = _read_csv(trend_to_csv(store.failure_trend(7)))
+
+    assert list(rows[0])[0] == "day"
+    assert len(rows) == 7
+    active = [row for row in rows if row["runs"] == "2"][0]
+    assert active["failures"] == "1"
+    assert active["failure_rate"] == "0.5"
+    assert active["agent_name"] == ""
+
+
+def test_trend_csv_repeats_the_active_agent(tmp_path, baseline, support):
+    store = TraceStore(tmp_path / "api.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(support, "support.json")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, support.run_id, 1)
+
+    rows = _read_csv(
+        trend_to_csv(store.failure_trend(7, agent_name="support-assistant"), "support-assistant")
+    )
+
+    assert all(row["agent_name"] == "support-assistant" for row in rows)
+    assert [row for row in rows if row["runs"] == "1"][0]["agent_name"] == "support-assistant"
+
+
+def test_api_trend_csv_carries_agent_filter(tmp_path, baseline, support):
+    client = TestClient(create_app(tmp_path / "api.db"))
+    client.post("/api/traces", json=baseline.as_jsonable())
+    client.post("/api/traces", json=support.as_jsonable())
+    store = TraceStore(tmp_path / "api.db")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, support.run_id, 1)
+
+    response = client.get(
+        "/api/trend", params={"agent": "support-assistant", "format": "csv"}
+    )
+
+    assert response.status_code == 200
+    rows = _read_csv(response.text)
+    assert all(row["agent_name"] == "support-assistant" for row in rows)
+
+
+def test_cli_trend_prints_json_buckets(tmp_path, baseline, candidate, monkeypatch, capsys):
+    store = TraceStore(tmp_path / "cli.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, candidate.run_id, 2)
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["atw", "--db", str(tmp_path / "cli.db"), "trend", "--days", "7"],
+    )
+    main()
+
+    trend = json.loads(capsys.readouterr().out)
+    assert len(trend) == 7
+    day = (datetime.now(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%d")
+    bucket = next(item for item in trend if item["day"] == day)
+    assert bucket["runs"] == 2
+    assert bucket["failures"] == 1
+
+
+def test_cli_trend_filters_by_agent(tmp_path, baseline, support, monkeypatch, capsys):
+    store = TraceStore(tmp_path / "cli.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(support, "support.json")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, support.run_id, 1)
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "atw",
+            "--db",
+            str(tmp_path / "cli.db"),
+            "trend",
+            "--agent",
+            "support-assistant",
+        ],
+    )
+    main()
+
+    trend = json.loads(capsys.readouterr().out)
+    day = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    bucket = next(item for item in trend if item["day"] == day)
+    assert bucket["runs"] == 1
+    assert bucket["failures"] == 0
+
+
+def test_cli_trend_csv_prints_rows(tmp_path, baseline, candidate, monkeypatch, capsys):
+    store = TraceStore(tmp_path / "cli.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, candidate.run_id, 2)
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["atw", "--db", str(tmp_path / "cli.db"), "trend", "--days", "7", "--format", "csv"],
+    )
+    main()
+
+    rows = _read_csv(capsys.readouterr().out)
+    assert len(rows) == 7
+    assert rows[0]["agent_name"] == ""
+
+
+def test_cli_trend_lists_agents(tmp_path, baseline, support, monkeypatch, capsys):
+    store = TraceStore(tmp_path / "cli.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(support, "support.json")
+
+    monkeypatch.setattr(
+        "sys.argv", ["atw", "--db", str(tmp_path / "cli.db"), "trend", "--agents"]
+    )
+    main()
+
+    assert json.loads(capsys.readouterr().out) == ["catalog-assistant", "support-assistant"]
+
+
+def test_cli_trend_rejects_bad_days(tmp_path, baseline, monkeypatch):
+    store = TraceStore(tmp_path / "cli.db")
+    store.ingest(baseline, "baseline.json")
+
+    monkeypatch.setattr(
+        "sys.argv", ["atw", "--db", str(tmp_path / "cli.db"), "trend", "--days", "0"]
+    )
+    with pytest.raises(SystemExit, match="--days"):
+        main()
