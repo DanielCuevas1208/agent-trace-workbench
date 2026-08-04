@@ -4,6 +4,21 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.11.0 - 2026-08-04
+
+### Added
+
+- Ordered failed-span summaries for runs in the dashboard day drill-down.
+- Error summary fields in the day drill-down API and CLI JSON output.
+- Failed-span count and messages in the day CSV export.
+- Deterministic tests for storage, API, dashboard, CLI, and CSV summaries.
+
+### Changed
+
+- Version numbers moved to 1.11.0.
+- Day cards show the failure count and first failure message.
+- The day drill-down reuses the error timeline failure rule.
+
 ## 1.10.0 - 2026-08-04
 
 ### Added

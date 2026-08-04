@@ -30,6 +30,8 @@ Release 1.9 adds a run-level error timeline to the run detail page. It marks eac
 
 Release 1.10 adds a span detail panel to the error timeline. Click a marker or an event row to open the full span record. Read the same record from the API or the CLI.
 
+Release 1.11 adds ordered failed-span summaries to each day drill-down card and day export.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -72,7 +74,7 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 - `models.py` defines the portable trace contract.
 - `handlers.py` loads local handler config and applies side-effect guards.
-- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It computes the review list, bulk labels, and the library report. It computes the failure trend, status breakdown, agent overlay, and run error timeline. It lists the runs for one day and enforces the retention cutoff. It returns the full record for one span. A cleanup log records each scheduled sweep.
+- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It computes the review list, bulk labels, and the library report. It computes the failure trend, status breakdown, agent overlay, and run error timeline. It lists one day with ordered error summaries and enforces the retention cutoff. It returns the full record for one span. A cleanup log records each scheduled sweep.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
@@ -489,6 +491,8 @@ curl.exe "http://127.0.0.1:8000/api/trend/2026-07-31"
 
 The response lists the runs for that day.
 
+Each run includes an ordered `error_summary` list. The list contains failed span IDs, names, kinds, statuses, and messages.
+
 ```json
 {
   "day": "2026-07-31",
@@ -504,7 +508,25 @@ The response lists the runs for that day.
       "run_id": "run-candidate-001",
       "agent_name": "catalog-assistant",
       "status": "error",
-      "tool_count": 3
+      "tool_count": 3,
+      "error_summary": [
+        {
+          "span_id": "span-agent-101",
+          "sequence": 0,
+          "name": "agent.run",
+          "kind": "agent",
+          "status": "error",
+          "message": "agent.run ended with status error"
+        },
+        {
+          "span_id": "span-tool-103",
+          "sequence": 3,
+          "name": "reserve_inventory",
+          "kind": "tool",
+          "status": "error",
+          "message": "reservation window expired"
+        }
+      ]
     }
   ]
 }
@@ -524,11 +546,11 @@ Download the day runs as CSV.
 curl.exe -o runs-2026-07-31.csv "http://127.0.0.1:8000/api/trend/2026-07-31?format=csv"
 ```
 
-The file lists one row per run. The day cell repeats the drill target.
+The file lists one row per run. It adds the failed-span count and messages.
 
 ```text
-day,run_id,agent_name,status,tool_count,duration_ms,source_dir,label
-2026-07-31,run-baseline-001,catalog-assistant,ok,2,220.0,fixtures,
+day,run_id,agent_name,status,error_count,error_summary,tool_count,duration_ms,source_dir,label
+2026-07-31,run-baseline-001,catalog-assistant,ok,0,,2,220.0,fixtures,
 ```
 
 Use the CLI for scripts.
@@ -539,6 +561,8 @@ python -m agent_trace_workbench.cli trend --day 2026-07-31 --format csv
 ```
 
 The day panel offers the same CSV download. A day outside the active window is ignored. The dashboard draws no panel for it.
+
+The dashboard card shows the failure count and first message. Open the run for the full error timeline.
 
 ## Status breakdown
 
@@ -1473,7 +1497,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 357 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 360 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -1553,6 +1577,10 @@ The span detail offsets match the error timeline. They count from the recorded r
 
 The span detail panel loads over the API. It needs a running server to fetch a record.
 
+Day cards show the first failure message. The API and CSV include every failed span.
+
+Error summaries use the same status and tool-outcome rule as the error timeline.
+
 The cleanup history records policy and counts. It does not store the deleted traces.
 
 The report retention line counts runs under the current policy. It uses `older_than_days` from the request or the 30-day default.
@@ -1610,13 +1638,14 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 1.8 complete: add an agent comparison overlay to the failure trend.
 - Release 1.9 complete: add a run-level error timeline to the run detail page.
 - Release 1.10 complete: add a span detail panel to the run-level error timeline.
-- Release 1.11: add a run error summary to the dashboard trend drill-down.
+- Release 1.11 complete: add ordered failed-span summaries to day cards, API output, CLI output, and CSV export.
+- Next: choose the next bounded evidence-review slice.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline, candidate, and second-agent traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, and export. It covers review, reports, retention cleanup, scheduled cleanup, and the server scheduler. It covers the failure trend, including the agent filter, window selector, day drill-down, status breakdown, overlay, and the run error timeline. It covers the span detail panel on the error timeline.
+`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, and export. It covers review, reports, retention cleanup, scheduled cleanup, and the server scheduler. It covers the failure trend, including the agent filter, window selector, day drill-down, run error summaries, status breakdown, overlay, and the run error timeline. It covers the span detail panel on the error timeline.
 
 `static/` and `templates/` contain the presentation layer.
 

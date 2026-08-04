@@ -874,7 +874,8 @@ class TraceStore:
         The drill-down view uses this method. A reviewer clicks a day on
         the trend chart and sees the runs that started that day. Pass
         agent_name to keep the day view in sync with the trend filter.
-        The day must use the YYYY-MM-DD format.
+        Each summary includes ordered failed-span details. The day must
+        use the YYYY-MM-DD format.
         """
 
         try:
@@ -892,7 +893,7 @@ class TraceStore:
         with traced_operation("storage.runs_on_day", {"trend.day": day}):
             with self._connect() as connection:
                 rows = connection.execute(query, params).fetchall()
-                return _summarize_runs(connection, rows)
+                return _summarize_runs(connection, rows, include_error_summary=True)
 
     def get_run(
         self,
@@ -971,7 +972,7 @@ class TraceStore:
         origin = ensure_utc(datetime.fromisoformat(run["started_at"]))
         events: list[dict[str, Any]] = []
         for row in rows:
-            if row["status"] != "error" and row["outcome"] != "failure":
+            if not _is_failed_span(row):
                 continue
             start_offset_ms = _offset_ms(
                 origin, datetime.fromisoformat(row["start_time"])
@@ -1241,6 +1242,25 @@ def _error_message(row: sqlite3.Row) -> str:
     return f"{row['name']} ended with status error"
 
 
+def _is_failed_span(row: sqlite3.Row) -> bool:
+    """Return whether a stored span belongs in a run error summary."""
+
+    return row["status"] == "error" or row["outcome"] == "failure"
+
+
+def _error_summary_item(row: sqlite3.Row) -> dict[str, Any]:
+    """Return the stable, compact failure record used by day drill-downs."""
+
+    return {
+        "span_id": row["span_id"],
+        "sequence": row["sequence_index"],
+        "name": row["name"],
+        "kind": row["kind"],
+        "status": row["status"],
+        "message": _error_message(row),
+    }
+
+
 def _retention_ids(
     connection: sqlite3.Connection,
     cutoff: datetime,
@@ -1280,6 +1300,8 @@ def _folder_name(source_dir: str) -> str:
 def _summarize_runs(
     connection: sqlite3.Connection,
     rows: list[sqlite3.Row],
+    *,
+    include_error_summary: bool = False,
 ) -> list[dict[str, Any]]:
     summaries = [_run_row(row) for row in rows]
     for summary in summaries:
@@ -1288,6 +1310,27 @@ def _summarize_runs(
             (summary["run_id"],),
         ).fetchone()
         summary["tool_count"] = tool_row["count"]
+    if include_error_summary:
+        errors_by_run: dict[str, list[dict[str, Any]]] = {
+            summary["run_id"]: [] for summary in summaries
+        }
+        if errors_by_run:
+            run_ids = list(errors_by_run)
+            placeholders = ", ".join("?" * len(run_ids))
+            error_rows = connection.execute(
+                f"""
+                SELECT run_id, span_id, sequence_index, name, kind, status, outcome, error
+                FROM spans
+                WHERE run_id IN ({placeholders})
+                  AND (status = 'error' OR outcome = 'failure')
+                ORDER BY run_id, sequence_index IS NULL, sequence_index, start_time, span_id
+                """,
+                run_ids,
+            ).fetchall()
+            for row in error_rows:
+                errors_by_run[row["run_id"]].append(_error_summary_item(row))
+        for summary in summaries:
+            summary["error_summary"] = errors_by_run[summary["run_id"]]
     return summaries
 
 
