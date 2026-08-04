@@ -16,6 +16,8 @@ Release 1.2 adds per-run retention and cleanup of old evidence. Prune runs last 
 
 Release 1.3 adds a scheduled cleanup and a retention line to the library report. Run one sweep now, or loop one on an interval. The report shows how much old evidence remains.
 
+Release 1.4 adds a server-side sweep scheduler and a failure trend line on the dashboard. The server can sweep old evidence on an interval while it runs. The dashboard shows whether failures rise or fall across the last 14 days.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -66,11 +68,12 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 - `export.py` renders comparisons, run tool calls, and library reports as CSV files.
 - `collector.py` posts recorded runs to a local collector over OTLP HTTP JSON.
 - `main.py` serves the interface and the JSON API.
+- `scheduler.py` runs server-side retention sweeps on an interval.
 - `telemetry.py` creates OpenTelemetry spans and exports them locally.
 
 The OpenTelemetry integration stays local by default. Set `ATW_OTEL_CONSOLE=1` to print workbench spans. Set `ATW_OTEL_COLLECTOR_ENDPOINT` to export them to a local collector.
 
-Each stored run keeps a local label and note. They form the review context for long-lived evidence.
+Each stored run keeps a local label and note. They form the review context for long-lived evidence. The server can sweep old evidence on an interval. The scheduler stays off unless you set `ATW_CLEANUP_EVERY_SECONDS`.
 
 ## Setup
 
@@ -101,7 +104,7 @@ uvicorn agent_trace_workbench.main:app --reload
 
 Open `http://127.0.0.1:8000` in a browser.
 
-The dashboard shows both runs. The candidate includes a reservation failure.
+The dashboard shows both runs. The candidate includes a reservation failure. The trend panel draws the daily failure rate for the recorded evidence.
 
 ## Sample output
 
@@ -210,6 +213,33 @@ curl.exe "http://127.0.0.1:8000/api/runs/run-candidate-001?kind=tool&status=erro
 The response keeps only matching spans. The run metrics still show full totals.
 
 Use the drop-downs on a run page. Clear the filters to see every span.
+
+## Failure trend
+
+The dashboard draws a daily failure line for the last 14 days.
+
+Each day counts total runs and failure runs. The line shows the failure rate. It helps you see whether failures rise or fall across a release.
+
+Read the trend over the API.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/trend?days=14"
+```
+
+The response lists one bucket per day. Empty days stay in the window with zero counts.
+
+```json
+[
+  {
+    "day": "2026-07-31",
+    "runs": 2,
+    "failures": 1,
+    "failure_rate": 0.5
+  }
+]
+```
+
+The dashboard panel shows window totals for runs, failures, and the failure rate.
 
 ## Saved comparisons
 
@@ -942,6 +972,48 @@ curl.exe "http://127.0.0.1:8000/api/cleanup/history"
 
 The Cleanup page shows the recent sweeps below the preview table.
 
+## Server-side sweep scheduler
+
+The server can sweep old evidence on an interval while it runs.
+
+Set `ATW_CLEANUP_EVERY_SECONDS` before you start the server.
+
+```powershell
+$env:ATW_CLEANUP_EVERY_SECONDS = "3600"
+uvicorn agent_trace_workbench.main:app
+```
+
+The server starts a background sweep on that interval. Each pass follows the same policy as `atw cleanup`. It records the sweep in the cleanup log.
+
+Set the policy with two more variables.
+
+```powershell
+$env:ATW_CLEANUP_OLDER_THAN_DAYS = "30"
+$env:ATW_CLEANUP_KEEP_LABELED = "1"
+```
+
+The scheduler stays off by default. No background delete starts without the interval variable.
+
+Check the schedule over the API.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/cleanup/schedule"
+```
+
+The response shows whether the scheduler runs and when the last sweep happened.
+
+```json
+{
+  "enabled": true,
+  "interval_seconds": 3600.0,
+  "older_than_days": 30,
+  "keep_labeled": true,
+  "last_sweep_at": "2026-08-03 12:00:00.123456"
+}
+```
+
+The Cleanup page shows the same state. The footer on every page shows the active interval.
+
 ## Trace contract
 
 A trace requires `trace_id`, `run_id`, `agent_name`, and `spans`.
@@ -964,7 +1036,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, reports, retention cleanup, and scheduled cleanup. It covers the CLI, the API, and collector export.
+The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, reports, retention cleanup, and scheduled cleanup. It covers the CLI, the API, collector export, the server scheduler, and the dashboard failure trend.
 
 Run the checks with these commands.
 
@@ -975,7 +1047,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 227 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 249 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -1003,7 +1075,13 @@ The cleanup page deletes every run in the preview table. It does not support per
 
 A scheduled cleanup runs only while the cleanup command runs. Stop the process to pause the schedule.
 
+The server scheduler runs only while the server process stays open. Stop the server to pause the schedule.
+
 A dry-run sweep never records history. Use the real sweep to keep the log current.
+
+The failure trend groups by the calendar day a run started. It uses the UTC day.
+
+The trend counts a run by its recorded status. A run with any error span counts as a failure.
 
 The cleanup history records policy and counts. It does not store the deleted traces.
 
@@ -1055,13 +1133,14 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 1.1 complete: add a CSV export for the library report and bulk label actions on the review list.
 - Release 1.2 complete: add per-run retention and cleanup of old evidence.
 - Release 1.3 complete: add a scheduled cleanup run and a retention line to the library report.
-- Release 1.4: add a server-side sweep scheduler and a failure trend line to the dashboard.
+- Release 1.4 complete: add a server-side sweep scheduler and a failure trend line on the dashboard.
+- Release 1.5: add a CSV export for the failure trend and an agent-level trend filter on the dashboard.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline and candidate traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, reports, retention cleanup, and scheduled cleanup.
+`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, reports, retention cleanup, scheduled cleanup, the server scheduler, and the failure trend.
 
 `static/` and `templates/` contain the presentation layer.
 
