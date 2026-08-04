@@ -25,6 +25,7 @@ from .export import (
     report_to_csv,
     run_tools_to_csv,
     status_trend_to_csv,
+    trend_overlay_to_csv,
     trend_to_csv,
 )
 from .handlers import ReplayPolicy, load_handler_config
@@ -84,11 +85,28 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         agent: str | None = Query(default=None, max_length=200),
         days: int = Query(default=14, ge=1, le=90),
         day: str | None = Query(default=None, max_length=10),
+        compare: str | None = Query(default=None, max_length=200),
     ) -> Any:
         runs = app.state.store.search_runs(q) if q else app.state.store.list_runs()
         selected_agent = agent or ""
-        trend = app.state.store.failure_trend(days, agent_name=selected_agent or None)
-        chart = _trend_chart(trend)
+        compare_agent = compare or ""
+        overlay = None
+        if compare_agent and compare_agent != selected_agent:
+            overlay = app.state.store.failure_trend_overlay(
+                days,
+                agent_name=selected_agent or None,
+                compare_agent=compare_agent,
+            )
+            trend = overlay["primary"]
+        else:
+            trend = app.state.store.failure_trend(
+                days, agent_name=selected_agent or None
+            )
+        chart = _trend_chart(
+            trend,
+            compare_trend=overlay["compare"] if overlay else None,
+            compare_agent=compare_agent if overlay else "",
+        )
         for point in chart["points"]:
             point["href"] = _day_href(selected_agent, days, point["day"])
         day_names = {point["day"] for point in chart["points"]}
@@ -103,6 +121,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         status_breakdown = app.state.store.status_trend(
             days, agent_name=selected_agent or None
         )
+        trend_agents = app.state.store.trend_agents()
         return render_template(
             request,
             "dashboard.html",
@@ -112,8 +131,14 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 "trend": chart,
                 "status_bars": _status_bars(status_breakdown),
                 "query": q or "",
-                "trend_agents": app.state.store.trend_agents(),
+                "trend_agents": trend_agents,
+                "compare_agents": (
+                    [item for item in trend_agents if item != selected_agent]
+                    if len(trend_agents) >= 2
+                    else []
+                ),
                 "selected_agent": selected_agent,
+                "compare_agent": compare_agent if overlay else "",
                 "selected_day": selected_day,
                 "day_runs": day_runs,
                 "day_csv_link": (
@@ -123,6 +148,11 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 ),
                 "trend_links": _trend_links(selected_agent, days),
                 "status_links": _status_links(selected_agent, days),
+                "overlay_links": (
+                    _overlay_links(selected_agent, compare_agent, days)
+                    if overlay
+                    else None
+                ),
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
                 "scheduler": _scheduler_status(app),
@@ -387,6 +417,34 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/trend/agents")
     def api_trend_agents() -> list[str]:
         return app.state.store.trend_agents()
+
+    @app.get("/api/trend/overlay", response_model=None)
+    def api_trend_overlay(
+        days: int = Query(default=14, ge=1, le=90),
+        agent: str | None = Query(default=None, max_length=200),
+        compare: str | None = Query(default=None, max_length=200),
+        export_format: str = Query(default="json", alias="format"),
+    ) -> Response | dict[str, Any]:
+        if not compare or not compare.strip():
+            raise HTTPException(
+                status_code=400, detail="compare must name an agent"
+            )
+        if agent and compare == agent:
+            raise HTTPException(
+                status_code=400, detail="compare must differ from agent"
+            )
+        overlay = app.state.store.failure_trend_overlay(
+            days, agent_name=agent, compare_agent=compare
+        )
+        if export_format == "csv":
+            return _download_response(
+                trend_overlay_to_csv(overlay),
+                "failure-trend-overlay.csv",
+                "text/csv; charset=utf-8",
+            )
+        if export_format != "json":
+            raise HTTPException(status_code=400, detail="format must be 'json' or 'csv'")
+        return overlay
 
     @app.get("/api/trend/statuses", response_model=None)
     def api_trend_statuses(
@@ -776,12 +834,19 @@ def _scheduler_status(app: FastAPI) -> dict[str, Any]:
     return scheduler.status()
 
 
-def _trend_chart(trend: list[dict[str, Any]]) -> dict[str, Any]:
+def _trend_chart(
+    trend: list[dict[str, Any]],
+    *,
+    compare_trend: list[dict[str, Any]] | None = None,
+    compare_agent: str = "",
+) -> dict[str, Any]:
     """Shape a failure trend into SVG-ready data for the dashboard.
 
     The helper maps each day to a point on a fixed view box. It returns
     the point list, a few day labels, and the window totals so the
     template can draw one line chart without any charting dependency.
+    Pass compare_trend and compare_agent to add a second line on the same
+    time axis. Both series share one day window, so their points line up.
     """
 
     width = 680
@@ -790,26 +855,15 @@ def _trend_chart(trend: list[dict[str, Any]]) -> dict[str, Any]:
     pad_y = 10
     count = len(trend)
     step = (width - 2 * pad_x) / max(count - 1, 1)
-    points = []
-    for index, item in enumerate(trend):
-        x = round(pad_x + index * step, 2)
-        rate = min(item["failure_rate"], 1.0)
-        y = round(height - pad_y - rate * (height - 2 * pad_y), 2)
-        points.append({**item, "x": x, "y": y})
+    points = _trend_points(trend, width, height, pad_x, pad_y, step)
     label_indices = sorted({0, count - 1, count // 2}) if count else []
     labels = [
         {"x": points[index]["x"], "day": points[index]["day"]}
         for index in label_indices
         if index < count
     ]
-    totals = {
-        "runs": sum(item["runs"] for item in trend),
-        "failures": sum(item["failures"] for item in trend),
-    }
-    totals["failure_rate"] = (
-        round(totals["failures"] / totals["runs"], 4) if totals["runs"] else 0.0
-    )
-    return {
+    totals = _trend_totals(trend)
+    chart: dict[str, Any] = {
         "width": width,
         "height": height,
         "days": count,
@@ -818,6 +872,48 @@ def _trend_chart(trend: list[dict[str, Any]]) -> dict[str, Any]:
         "active_days": sum(1 for item in trend if item["runs"] > 0),
         "totals": totals,
     }
+    if compare_trend is not None:
+        compare_points = _trend_points(
+            compare_trend, width, height, pad_x, pad_y, step
+        )
+        chart["compare"] = {
+            "agent": compare_agent,
+            "points": compare_points,
+            "totals": _trend_totals(compare_trend),
+        }
+    return chart
+
+
+def _trend_points(
+    trend: list[dict[str, Any]],
+    width: int,
+    height: int,
+    pad_x: int,
+    pad_y: int,
+    step: float,
+) -> list[dict[str, Any]]:
+    """Map each trend bucket to a point on the shared SVG view box."""
+
+    points = []
+    for index, item in enumerate(trend):
+        x = round(pad_x + index * step, 2)
+        rate = min(item["failure_rate"], 1.0)
+        y = round(height - pad_y - rate * (height - 2 * pad_y), 2)
+        points.append({**item, "x": x, "y": y})
+    return points
+
+
+def _trend_totals(trend: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return the window totals for one failure trend series."""
+
+    totals = {
+        "runs": sum(item["runs"] for item in trend),
+        "failures": sum(item["failures"] for item in trend),
+    }
+    totals["failure_rate"] = (
+        round(totals["failures"] / totals["runs"], 4) if totals["runs"] else 0.0
+    )
+    return totals
 
 
 def _trend_links(selected_agent: str, days: int) -> dict[str, str]:
@@ -861,6 +957,27 @@ def _status_links(selected_agent: str, days: int) -> dict[str, str]:
     return {
         "json": f"/api/trend/statuses?{prefix}",
         "csv": f"/api/trend/statuses?{prefix}&format=csv",
+    }
+
+
+def _overlay_links(selected_agent: str, compare_agent: str, days: int) -> dict[str, str]:
+    """Return the JSON and CSV export links for the agent comparison overlay.
+
+    The links keep the primary agent, the compare agent, and any
+    non-default window size, so a download matches what the panel draws.
+    Agent names are URL-encoded because they may contain spaces or
+    punctuation.
+    """
+
+    params: dict[str, Any] = {"compare": compare_agent}
+    if selected_agent:
+        params["agent"] = selected_agent
+    if days != 14:
+        params["days"] = days
+    prefix = urlencode(params)
+    return {
+        "json": f"/api/trend/overlay?{prefix}",
+        "csv": f"/api/trend/overlay?{prefix}&format=csv",
     }
 
 

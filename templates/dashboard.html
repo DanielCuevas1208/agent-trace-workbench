@@ -2,7 +2,7 @@
 {% block title %}Runs | Agent Trace Workbench{% endblock %}
 {% block content %}
 <section class="hero">
-    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 1.7</div>
+    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 1.8</div>
     <h1>See what your agent did.<br><em>Replay why it did it.</em></h1>
     <p class="hero-copy">Ingest local JSON traces, import OTLP exports, watch a folder, inspect every tool boundary, replay recorded work, compare runs, label evidence for review, and read a folder-level library report without a hosted service.</p>
     <div class="hero-actions">
@@ -50,7 +50,7 @@
 </section>
 
 <section id="trend" class="section-block trend-section">
-    <div class="section-heading"><div><div class="eyebrow">03 / FAILURE TREND</div><h2>Do failures rise or fall?</h2></div><span class="section-meta">last {{ trend.days }} days · {{ trend.active_days }} with activity{% if selected_agent %} · {{ selected_agent }}{% endif %}</span></div>
+    <div class="section-heading"><div><div class="eyebrow">03 / FAILURE TREND</div><h2>Do failures rise or fall?</h2></div><span class="section-meta">last {{ trend.days }} days · {{ trend.active_days }} with activity{% if selected_agent %} · {{ selected_agent }}{% endif %}{% if trend.compare %} vs {{ trend.compare.agent }}{% endif %}</span></div>
     {% if trend_agents %}
     <form method="get" action="/" class="trend-filter" role="search">
         <label class="visually-hidden" for="trend-agent">Filter trend by agent</label>
@@ -62,16 +62,27 @@
         <select id="trend-days" name="days">
             {% for option in [7, 14, 30, 90] %}<option value="{{ option }}"{% if option == trend.days %} selected{% endif %}>{{ option }} days</option>{% endfor %}
         </select>
+        {% if compare_agents %}
+        <label class="visually-hidden" for="trend-compare">Compare against an agent</label>
+        <select id="trend-compare" name="compare">
+            <option value="">Compare against&hellip;</option>
+            {% for agent in compare_agents %}<option value="{{ agent }}"{% if agent == compare_agent %} selected{% endif %}>{{ agent }}</option>{% endfor %}
+        </select>
+        {% endif %}
         {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
         {% if selected_day %}<input type="hidden" name="day" value="{{ selected_day }}">{% endif %}
         <button class="button button-primary" type="submit">Filter</button>
-        {% if selected_agent or selected_day or trend.days != 14 %}<a class="button button-quiet" href="/#trend">Clear</a>{% endif %}
+        {% if selected_agent or selected_day or trend.days != 14 or compare_agent %}<a class="button button-quiet" href="/#trend">Clear</a>{% endif %}
     </form>
     {% endif %}
     {% if trend.active_days %}
     <div class="panel trend-panel">
-        <div class="trend-chart" role="img" aria-label="Daily failure rate over the last {{ trend.days }} days{% if selected_agent %} for {{ selected_agent }}{% endif %}">
+        <div class="trend-chart" role="img" aria-label="Daily failure rate over the last {{ trend.days }} days{% if selected_agent %} for {{ selected_agent }}{% endif %}{% if trend.compare %} compared with {{ trend.compare.agent }}{% endif %}">
             <svg viewBox="0 0 {{ trend.width }} {{ trend.height }}" preserveAspectRatio="none" class="trend-svg">
+                {% if trend.compare %}
+                <polyline points="{% for point in trend.compare.points %}{{ point.x }},{{ point.y }} {% endfor %}" class="trend-line trend-line-compare" vector-effect="non-scaling-stroke"></polyline>
+                {% for point in trend.compare.points %}<circle cx="{{ point.x }}" cy="{{ point.y }}" r="2.6" class="trend-dot trend-dot-compare" vector-effect="non-scaling-stroke"></circle>{% endfor %}
+                {% endif %}
                 <polyline points="{% for point in trend.points %}{{ point.x }},{{ point.y }} {% endfor %}" class="trend-line" vector-effect="non-scaling-stroke"></polyline>
                 {% for point in trend.points %}<a href="{{ point.href }}" class="trend-dot-link" aria-label="Show runs on {{ point.day }}"><circle cx="{{ point.x }}" cy="{{ point.y }}" r="3.2" class="trend-dot" vector-effect="non-scaling-stroke"></circle></a>{% endfor %}
             </svg>
@@ -86,6 +97,15 @@
             <a class="button button-quiet" href="{{ trend_links.json }}">JSON <span aria-hidden="true">&#8594;</span></a>
             <a class="button button-quiet" href="{{ trend_links.csv }}">CSV <span aria-hidden="true">&#8594;</span></a>
         </div>
+        {% if trend.compare %}
+        <div class="trend-legend trend-legend-overlay">
+            <span class="legend-item"><i class="legend-swatch swatch-primary"></i><span>{% if selected_agent %}{{ selected_agent }}{% else %}All agents{% endif %}</span><strong>{{ "%.1f"|format(trend.totals.failure_rate * 100) }}%</strong></span>
+            <span class="legend-item"><i class="legend-swatch swatch-compare"></i><span>{{ trend.compare.agent }}</span><strong>{{ "%.1f"|format(trend.compare.totals.failure_rate * 100) }}%</strong></span>
+            <span class="section-meta">failure rate per series</span>
+            <a class="button button-quiet" href="{{ overlay_links.json }}">JSON <span aria-hidden="true">&#8594;</span></a>
+            <a class="button button-quiet" href="{{ overlay_links.csv }}">CSV <span aria-hidden="true">&#8594;</span></a>
+        </div>
+        {% endif %}
     </div>
     <div class="trend-status">
         <div class="trend-status-head">
@@ -145,6 +165,7 @@
         <label class="visually-hidden" for="run-search">Search runs</label>
         <input id="run-search" type="search" name="q" value="{{ query }}" placeholder="Search by run ID, agent, span, or tool...">
         {% if selected_agent %}<input type="hidden" name="agent" value="{{ selected_agent }}">{% endif %}
+        {% if compare_agent %}<input type="hidden" name="compare" value="{{ compare_agent }}">{% endif %}
         {% if trend.days != 14 %}<input type="hidden" name="days" value="{{ trend.days }}">{% endif %}
         {% if selected_day %}<input type="hidden" name="day" value="{{ selected_day }}">{% endif %}
         <button class="button button-primary" type="submit">Search</button>

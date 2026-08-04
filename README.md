@@ -24,6 +24,8 @@ Release 1.6 adds a trend window selector and a per-day drill-down on the dashboa
 
 Release 1.7 adds a status breakdown beside the daily failure line. Each trend day shows a stacked bar of run status counts. Read the same counts from the API or the CLI.
 
+Release 1.8 adds an agent comparison overlay to the failure trend. Choose a second agent on the dashboard and the chart draws its failure line beside the primary series. Read both series from the API, the CLI, or a CSV file.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -66,7 +68,7 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 - `models.py` defines the portable trace contract.
 - `handlers.py` loads local handler config and applies side-effect guards.
-- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It also computes the review list, applies bulk labels, builds the library report, computes the daily failure trend and the status breakdown, lists the runs for one day, and enforces the retention cutoff for cleanup. A cleanup log records each scheduled sweep.
+- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It also computes the review list, applies bulk labels, builds the library report, computes the daily failure trend, the status breakdown, and the agent comparison overlay, lists the runs for one day, and enforces the retention cutoff for cleanup. A cleanup log records each scheduled sweep.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
@@ -467,6 +469,75 @@ python -m agent_trace_workbench.cli trend --statuses --agent catalog-assistant -
 ```
 
 The panel JSON and CSV links keep the active agent and window.
+
+## Agent comparison overlay
+
+Compare one agent's failure line with another on the dashboard.
+
+Choose a second agent in the compare select above the chart. The chart draws a dashed line for that agent beside the primary line. The legend shows the failure rate of each series.
+
+The compare select lists every recorded agent except the primary one. It appears only when the library records two or more agents.
+
+Read both series over the API.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/trend/overlay?agent=catalog-assistant&compare=support-assistant"
+```
+
+The response returns the primary series and the compare series on one window.
+
+```json
+{
+  "days": 14,
+  "primary_agent": "catalog-assistant",
+  "compare_agent": "support-assistant",
+  "primary": [
+    {
+      "day": "2026-07-31",
+      "runs": 2,
+      "failures": 1,
+      "failure_rate": 0.5
+    }
+  ],
+  "compare": [
+    {
+      "day": "2026-07-31",
+      "runs": 1,
+      "failures": 0,
+      "failure_rate": 0.0
+    }
+  ]
+}
+```
+
+Omit `agent` to compare the whole library with one agent.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/trend/overlay?compare=support-assistant"
+```
+
+Download the overlay as a CSV document.
+
+```powershell
+curl.exe -o overlay.csv "http://127.0.0.1:8000/api/trend/overlay?compare=support-assistant&format=csv"
+```
+
+The file lists one row per day per series. A `series` column marks each row as primary or compare.
+
+```text
+day,series,agent_name,runs,failures,failure_rate
+2026-07-31,primary,catalog-assistant,2,1,0.5
+2026-07-31,compare,support-assistant,1,0,0.0
+```
+
+Use the CLI for scripts.
+
+```powershell
+python -m agent_trace_workbench.cli trend --agent catalog-assistant --compare support-assistant
+python -m agent_trace_workbench.cli trend --compare support-assistant --format csv
+```
+
+The dashboard panel links to both downloads. The links keep the active agents and window. The compare agent must differ from the primary agent.
 
 ## Saved comparisons
 
@@ -1263,7 +1334,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, reports, retention cleanup, and scheduled cleanup. It covers the CLI, the API, collector export, the server scheduler, and the dashboard failure trend, including the agent filter, the window selector, the day drill-down, the status breakdown, and the CSV exports.
+The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, reports, retention cleanup, and scheduled cleanup. It covers the CLI, the API, collector export, the server scheduler, and the dashboard failure trend, including the agent filter, the window selector, the day drill-down, the status breakdown, the agent comparison overlay, and the CSV exports.
 
 Run the checks with these commands.
 
@@ -1274,7 +1345,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 308 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 329 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -1323,6 +1394,16 @@ The trend agent filter matches the exact recorded agent name.
 The trend CSV repeats the active agent in every row. The all-agents view leaves that cell empty.
 
 The trend export lists one row per day. It does not add a window total row.
+
+The compare overlay matches each agent name exactly. An unknown name draws a flat line at zero.
+
+The compare overlay shares the primary trend window. It does not add a third series.
+
+The overlay CSV repeats the agent name in every row. The all-agents view leaves the primary cell empty.
+
+The overlay CSV lists both series in one file. Plot tools filter rows by the series column.
+
+The day drill-down stays bound to the primary series. It does not drill into the compare line.
 
 The day drill-down groups runs by the UTC calendar day they started. It ignores a day outside the active trend window.
 
@@ -1382,13 +1463,14 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 1.5 complete: add a CSV export for the failure trend and an agent-level trend filter on the dashboard.
 - Release 1.6 complete: add a trend window selector and a per-day drill-down on the dashboard chart.
 - Release 1.7 complete: add a status breakdown beside the daily failure line on the dashboard.
-- Release 1.8: add an agent comparison overlay to the failure trend.
+- Release 1.8 complete: add an agent comparison overlay to the failure trend.
+- Release 1.9: add a run-level error timeline to the run detail page.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline, candidate, and second-agent traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, reports, retention cleanup, scheduled cleanup, the server scheduler, and the failure trend, including the agent filter, the window selector, the day drill-down, the status breakdown, and the CSV exports.
+`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, reports, retention cleanup, scheduled cleanup, the server scheduler, and the failure trend, including the agent filter, the window selector, the day drill-down, the status breakdown, the agent comparison overlay, and the CSV exports.
 
 `static/` and `templates/` contain the presentation layer.
 
