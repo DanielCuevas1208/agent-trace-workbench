@@ -44,7 +44,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     configure_telemetry()
     database_path = db_path or os.getenv("ATW_DB_PATH", "data/workbench.db")
     busy_timeout_ms = _env_int("ATW_DB_BUSY_TIMEOUT_MS", 5000)
-    app = FastAPI(title="Agent Trace Workbench", version="1.2.0")
+    app = FastAPI(title="Agent Trace Workbench", version="1.3.0")
     app.state.store = TraceStore(database_path, busy_timeout_ms=busy_timeout_ms)
     app.state.replay_engine = _build_replay_engine()
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
@@ -146,12 +146,17 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         )
 
     @app.get("/report", response_class=HTMLResponse)
-    def report_page(request: Request) -> Any:
+    def report_page(
+        request: Request,
+        older_than_days: int = Query(default=30, ge=1, le=36500),
+    ) -> Any:
         return render_template(
             request,
             "report.html",
             {
-                "report": app.state.store.library_report(),
+                "report": app.state.store.library_report(
+                    older_than_days=older_than_days
+                ),
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
             },
@@ -179,6 +184,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 "candidate_runs": app.state.store.runs_by_ids(candidates),
                 "protected_runs": len(protected),
                 "library": app.state.store.library_report()["totals"],
+                "history": app.state.store.sweep_history(10),
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
             },
@@ -239,11 +245,62 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             **result,
         }
 
+    @app.post("/api/cleanup")
+    def api_cleanup(payload: RetentionRequest) -> dict[str, Any]:
+        cutoff = _retention_cutoff(payload.older_than_days)
+        protected = (
+            app.state.store.protected_runs(cutoff, run_ids=payload.run_ids)
+            if payload.keep_labeled
+            else []
+        )
+        if payload.dry_run:
+            candidates = app.state.store.retention_candidates(
+                cutoff,
+                keep_labeled=payload.keep_labeled,
+                run_ids=payload.run_ids,
+            )
+            return {
+                "older_than_days": payload.older_than_days,
+                "cutoff": cutoff.isoformat(),
+                "keep_labeled": payload.keep_labeled,
+                "dry_run": True,
+                "protected_runs": len(protected),
+                "deleted_runs": 0,
+                "deleted_spans": 0,
+                "deleted_comparisons": 0,
+                "candidates": candidates,
+            }
+        result = app.state.store.sweep_runs(
+            payload.older_than_days,
+            keep_labeled=payload.keep_labeled,
+            run_ids=payload.run_ids,
+        )
+        return {
+            "older_than_days": payload.older_than_days,
+            "cutoff": result["cutoff"],
+            "keep_labeled": payload.keep_labeled,
+            "dry_run": False,
+            "protected_runs": result["protected_runs"],
+            "deleted_runs": result["deleted_runs"],
+            "deleted_spans": result["deleted_spans"],
+            "deleted_comparisons": result["deleted_comparisons"],
+            "candidates": result["run_ids"],
+            "sweep_id": result["sweep_id"],
+            "ran_at": result["ran_at"],
+        }
+
+    @app.get("/api/cleanup/history")
+    def api_cleanup_history(
+        limit: int = Query(default=20, ge=1, le=100),
+    ) -> list[dict[str, Any]]:
+        return app.state.store.sweep_history(limit)
+
     @app.get("/api/report", response_model=None)
     def api_report(
         export_format: str = Query(default="json", alias="format"),
+        older_than_days: int = Query(default=30, ge=1, le=36500),
     ) -> Response | dict[str, Any]:
-        report = app.state.store.library_report()
+        report = app.state.store.library_report(older_than_days=older_than_days)
         if export_format == "csv":
             filename = "library-report.csv"
             return _download_response(report_to_csv(report), filename, "text/csv; charset=utf-8")

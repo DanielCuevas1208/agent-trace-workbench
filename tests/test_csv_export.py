@@ -1,6 +1,8 @@
 import csv
 import io
 import json
+import sqlite3
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -228,3 +230,24 @@ def test_report_csv_escapes_folder_names(tmp_path, baseline):
     rows = _read_csv(report_to_csv(store.library_report()))
 
     assert rows[1]["source_dir"] == 'inbox, "quoted"'
+
+
+def test_report_csv_has_retention_row(tmp_path, baseline, candidate):
+    store = TraceStore(tmp_path / "api.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+    stamp = (datetime.now(timezone.utc) - timedelta(days=40)).strftime("%Y-%m-%d %H:%M:%S")
+    with sqlite3.connect(store.db_path) as connection:
+        connection.execute(
+            "UPDATE runs SET ingested_at = ? WHERE run_id IN (?, ?)",
+            (stamp, baseline.run_id, candidate.run_id),
+        )
+
+    rows = _read_csv(report_to_csv(store.library_report(older_than_days=30)))
+    retention = [row for row in rows if row["section"] == "retention"]
+
+    assert len(retention) == 1
+    assert retention[0]["eligible_runs"] == "2"
+    assert retention[0]["protected_runs"] == "0"
+    assert retention[0]["cutoff"] != ""
+    assert retention[0]["last_cleanup_at"] == ""

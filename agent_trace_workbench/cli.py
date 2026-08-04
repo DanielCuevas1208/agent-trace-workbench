@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -125,6 +126,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="json",
         help="Output format",
     )
+    report.add_argument(
+        "--older-than",
+        type=int,
+        default=30,
+        dest="older_than_days",
+        help="Retention line age in days (default: 30)",
+    )
 
     annotate = subparsers.add_parser(
         "annotate", help="Label a run and add local review notes"
@@ -170,6 +178,55 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Preview the candidate runs without deleting them",
+    )
+
+    cleanup = subparsers.add_parser(
+        "cleanup",
+        help="Run a scheduled retention cleanup and record it",
+    )
+    cleanup.add_argument(
+        "--older-than",
+        type=int,
+        default=30,
+        dest="older_than_days",
+        help="Delete runs older than this many days (default: 30)",
+    )
+    cleanup.add_argument(
+        "--keep-labeled",
+        dest="keep_labeled",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Keep runs that carry a label (default: on)",
+    )
+    cleanup.add_argument(
+        "--run-id",
+        action="append",
+        dest="run_ids",
+        default=None,
+        help="Restrict cleanup to one run; repeat for several runs",
+    )
+    cleanup.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview the candidate runs without recording a sweep",
+    )
+    cleanup.add_argument(
+        "--every",
+        type=float,
+        default=None,
+        dest="every_seconds",
+        help="Repeat the sweep every N seconds until interrupted",
+    )
+    cleanup.add_argument(
+        "--history",
+        action="store_true",
+        help="List recorded cleanup sweeps instead of running one",
+    )
+    cleanup.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Number of sweeps to list with --history",
     )
     return parser
 
@@ -298,7 +355,9 @@ def main() -> None:
         else:
             print(json.dumps(store.unreviewed_runs(args.limit), indent=2))
     elif args.command == "report":
-        report = store.library_report()
+        if args.older_than_days < 1:
+            raise SystemExit("--older-than must be at least 1 day")
+        report = store.library_report(older_than_days=args.older_than_days)
         if args.format == "csv":
             print(report_to_csv(report), end="")
         else:
@@ -377,6 +436,73 @@ def main() -> None:
                     indent=2,
                 )
             )
+    elif args.command == "cleanup":
+        if args.history:
+            print(json.dumps(store.sweep_history(args.limit), indent=2))
+        else:
+            _run_cleanup_loop(store, args)
+
+
+def _run_cleanup_loop(store: TraceStore, args: argparse.Namespace) -> None:
+    """Run one retention sweep, repeating when --every requests a schedule.
+
+    A scheduled cleanup suits cron, Task Scheduler, or a long-lived local
+    process. Each pass prints one JSON record. A dry run never records a
+    sweep in the cleanup log.
+    """
+
+    while True:
+        print(json.dumps(_cleanup_result(store, args), indent=2))
+        if not args.every_seconds:
+            return
+        try:
+            time.sleep(args.every_seconds)
+        except KeyboardInterrupt:
+            return
+
+
+def _cleanup_result(store: TraceStore, args: argparse.Namespace) -> dict[str, object]:
+    if args.older_than_days < 1:
+        raise SystemExit("--older-than must be at least 1 day")
+    if args.dry_run:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=args.older_than_days)
+        protected = (
+            store.protected_runs(cutoff, run_ids=args.run_ids)
+            if args.keep_labeled
+            else []
+        )
+        candidates = store.retention_candidates(
+            cutoff, keep_labeled=args.keep_labeled, run_ids=args.run_ids
+        )
+        return {
+            "older_than_days": args.older_than_days,
+            "cutoff": cutoff.isoformat(),
+            "keep_labeled": args.keep_labeled,
+            "dry_run": True,
+            "protected_runs": len(protected),
+            "deleted_runs": 0,
+            "deleted_spans": 0,
+            "deleted_comparisons": 0,
+            "run_ids": candidates,
+        }
+    result = store.sweep_runs(
+        args.older_than_days,
+        keep_labeled=args.keep_labeled,
+        run_ids=args.run_ids,
+    )
+    return {
+        "older_than_days": args.older_than_days,
+        "cutoff": result["cutoff"],
+        "keep_labeled": args.keep_labeled,
+        "dry_run": False,
+        "protected_runs": result["protected_runs"],
+        "deleted_runs": result["deleted_runs"],
+        "deleted_spans": result["deleted_spans"],
+        "deleted_comparisons": result["deleted_comparisons"],
+        "run_ids": result["run_ids"],
+        "sweep_id": result["sweep_id"],
+        "ran_at": result["ran_at"],
+    }
 
 
 def _prune_result(

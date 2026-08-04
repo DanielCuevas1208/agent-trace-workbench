@@ -340,7 +340,7 @@ def test_api_report_csv_returns_attachment(tmp_path, baseline, candidate):
     assert response.headers["content-type"].startswith("text/csv")
     assert response.headers["content-disposition"] == 'attachment; filename="library-report.csv"'
     rows = list(csv.DictReader(io.StringIO(response.text)))
-    assert [row["section"] for row in rows] == ["total", "source", "agent"]
+    assert [row["section"] for row in rows] == ["total", "source", "agent", "retention"]
     assert rows[0]["runs"] == "2"
 
 
@@ -427,7 +427,7 @@ def test_cli_report_csv_prints_rows(tmp_path, baseline, candidate, monkeypatch, 
     rows = list(csv.DictReader(io.StringIO(capsys.readouterr().out)))
     assert rows[0]["section"] == "total"
     assert rows[0]["runs"] == "2"
-    assert rows[-1]["section"] == "agent"
+    assert rows[-1]["section"] == "retention"
 
 
 def test_review_page_shows_bulk_label_form(tmp_path, baseline, candidate):
