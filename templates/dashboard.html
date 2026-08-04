@@ -2,7 +2,7 @@
 {% block title %}Runs | Agent Trace Workbench{% endblock %}
 {% block content %}
 <section class="hero">
-    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 1.0</div>
+    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 1.4</div>
     <h1>See what your agent did.<br><em>Replay why it did it.</em></h1>
     <p class="hero-copy">Ingest local JSON traces, import OTLP exports, watch a folder, inspect every tool boundary, replay recorded work, compare runs, label evidence for review, and read a folder-level library report without a hosted service.</p>
     <div class="hero-actions">
@@ -49,8 +49,33 @@
     </div>
 </section>
 
+<section id="trend" class="section-block trend-section">
+    <div class="section-heading"><div><div class="eyebrow">03 / FAILURE TREND</div><h2>Do failures rise or fall?</h2></div><span class="section-meta">last {{ trend.days }} days · {{ trend.active_days }} with activity</span></div>
+    {% if trend.active_days %}
+    <div class="panel trend-panel">
+        <div class="trend-chart" role="img" aria-label="Daily failure rate over the last {{ trend.days }} days">
+            <svg viewBox="0 0 {{ trend.width }} {{ trend.height }}" preserveAspectRatio="none" class="trend-svg">
+                <polyline points="{% for point in trend.points %}{{ point.x }},{{ point.y }} {% endfor %}" class="trend-line" vector-effect="non-scaling-stroke"></polyline>
+                {% for point in trend.points %}<circle cx="{{ point.x }}" cy="{{ point.y }}" r="3.2" class="trend-dot" vector-effect="non-scaling-stroke"></circle>{% endfor %}
+            </svg>
+            <div class="trend-labels">
+                {% for label in trend.labels %}<span class="mono" style="left: {{ label.x / trend.width * 100 }}%">{{ label.day }}</span>{% endfor %}
+            </div>
+        </div>
+        <div class="trend-foot">
+            <span><strong>{{ trend.totals.runs }}</strong> runs recorded</span>
+            <span class="trend-failures"><strong>{{ trend.totals.failures }}</strong> failure runs</span>
+            <span><strong>{{ "%.1f"|format(trend.totals.failure_rate * 100) }}%</strong> failure rate</span>
+            <a class="button button-quiet" href="/api/trend">JSON <span aria-hidden="true">&#8594;</span></a>
+        </div>
+    </div>
+    {% else %}
+    <div class="empty-state"><span class="empty-mark">+</span><h3>No runs in this window</h3><p>Record a run and the dashboard draws its daily failure line.</p></div>
+    {% endif %}
+</section>
+
 <section id="recent-runs" class="section-block">
-    <div class="section-heading"><div><div class="eyebrow">03 / TRACE LIBRARY</div><h2>Recent runs</h2></div><span class="section-meta">{{ runs|length }} shown</span></div>
+    <div class="section-heading"><div><div class="eyebrow">04 / TRACE LIBRARY</div><h2>Recent runs</h2></div><span class="section-meta">{{ runs|length }} shown</span></div>
     <form method="get" action="/" class="search-bar" role="search">
         <label class="visually-hidden" for="run-search">Search runs</label>
         <input id="run-search" type="search" name="q" value="{{ query }}" placeholder="Search by run ID, agent, span, or tool...">

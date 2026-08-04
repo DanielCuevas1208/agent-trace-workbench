@@ -18,6 +18,22 @@
     <div class="metric-card"><span class="metric-label">Protected</span><strong>{{ protected_runs }}</strong><span class="metric-note">kept by label</span></div>
     <div class="metric-card"><span class="metric-label">Cutoff</span><strong class="metric-code">{{ cutoff.strftime('%Y-%m-%d %H:%M') }}</strong><span class="metric-note">UTC · last ingestion before</span></div>
 </section>
+<section class="section-block cleanup-section scheduler-section">
+    <div class="section-heading"><div><div class="eyebrow">SERVER SCHEDULER</div><h2>Cleanup while the server runs</h2></div>
+        {% if scheduler.enabled %}
+        <span class="badge badge-ok">active · every {{ scheduler.interval_seconds }}s</span>
+        {% else %}
+        <span class="badge badge-unset">off</span>
+        {% endif %}
+    </div>
+    <p class="scheduler-copy">Set <code>ATW_CLEANUP_EVERY_SECONDS</code> and start the server. A background thread sweeps on that interval and records each pass in the history below.</p>
+    <div class="scheduler-stats">
+        <div><span class="field-label">Interval</span><span class="mono">{{ scheduler.interval_seconds|default('n/a', true) }} s</span></div>
+        <div><span class="field-label">Policy</span><span class="mono">{{ scheduler.older_than_days|default(30, true) }} days</span></div>
+        <div><span class="field-label">Label protection</span><span class="mono">{% if scheduler.keep_labeled|default(true, true) %}on{% else %}off{% endif %}</span></div>
+        <div><span class="field-label">Last sweep</span><span class="mono">{{ scheduler.last_sweep_at|default('never', true) }}</span></div>
+    </div>
+</section>
 <section class="section-block cleanup-section">
     <div class="section-heading"><div><div class="eyebrow">RETENTION POLICY</div><h2>Preview what a prune removes</h2></div><span class="section-meta">dry run first</span></div>
     <form id="retention-form" class="bulk-label retention-form" method="get" action="/cleanup" aria-label="Set the retention policy">

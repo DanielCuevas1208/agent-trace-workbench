@@ -4,6 +4,26 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.4.0 - 2026-08-03
+
+### Added
+
+- A server-side retention scheduler that sweeps old evidence while the server runs.
+- `ATW_CLEANUP_EVERY_SECONDS` environment variable that starts the background schedule.
+- `ATW_CLEANUP_OLDER_THAN_DAYS` and `ATW_CLEANUP_KEEP_LABELED` options that set the schedule policy.
+- `GET /api/cleanup/schedule` route that reports the active schedule and the last sweep.
+- A scheduler status panel on the Cleanup page and a footer line on every page.
+- A daily failure trend line on the dashboard with window totals.
+- `GET /api/trend` route that returns the daily failure buckets for scripts.
+- Deterministic tests for the scheduler, the schedule route, the trend, and the dashboard panel.
+
+### Changed
+
+- Version numbers moved to 1.4.0.
+- The dashboard now draws a failure trend beside the recent run list.
+- The architecture now includes a server-side scheduler beside the retention layer.
+- The server lifecycle starts and stops the scheduler, so no background thread leaks.
+
 ## 1.3.0 - 2026-08-04
 
 ### Added

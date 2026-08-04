@@ -30,6 +30,7 @@
         <span>Trace data stays in your SQLite file.</span>
         {% if store %}<span class="store-status">{{ store.journal_mode }} journal · busy {{ store.busy_timeout_ms }} ms · SQLite {{ store.sqlite_version }}</span>{% endif %}
         {% if telemetry and telemetry.collector_endpoint %}<span class="store-status">collector {{ telemetry.collector_endpoint }}</span>{% endif %}
+        {% if scheduler and scheduler.enabled %}<span class="store-status">cleanup every {{ scheduler.interval_seconds }}s</span>{% endif %}
     </footer>
 </body>
 </html>

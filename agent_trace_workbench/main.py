@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from html import escape
 from pathlib import Path
@@ -14,6 +15,7 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from . import __version__
 from .collector import export_run_to_collector
 from .compare import compare_runs
 from .export import comparison_to_csv, report_to_csv, run_tools_to_csv
@@ -28,6 +30,7 @@ from .models import (
 )
 from .otlp import parse_otlp_json, trace_to_otlp_json
 from .replay import ReplayEngine, default_replay_engine
+from .scheduler import CleanupScheduler
 from .storage import TraceStore
 from .telemetry import configure_telemetry, traces_url
 
@@ -38,15 +41,32 @@ except AssertionError:  # pragma: no cover - only used when Jinja2 is absent off
     templates = None
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start and stop the optional retention scheduler with the server."""
+
+    scheduler = getattr(app.state, "cleanup_scheduler", None)
+    if scheduler is not None:
+        scheduler.start()
+    try:
+        yield
+    finally:
+        if scheduler is not None:
+            scheduler.stop()
+
+
 def create_app(db_path: str | Path | None = None) -> FastAPI:
     """Create an isolated application instance for production or tests."""
 
     configure_telemetry()
     database_path = db_path or os.getenv("ATW_DB_PATH", "data/workbench.db")
     busy_timeout_ms = _env_int("ATW_DB_BUSY_TIMEOUT_MS", 5000)
-    app = FastAPI(title="Agent Trace Workbench", version="1.3.0")
+    app = FastAPI(
+        title="Agent Trace Workbench", version=__version__, lifespan=lifespan
+    )
     app.state.store = TraceStore(database_path, busy_timeout_ms=busy_timeout_ms)
     app.state.replay_engine = _build_replay_engine()
+    app.state.cleanup_scheduler = _build_cleanup_scheduler(app.state.store)
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
 
     @app.get("/", response_class=HTMLResponse)
@@ -61,9 +81,11 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             {
                 "runs": runs,
                 "stats": _stats(runs),
+                "trend": _trend_chart(app.state.store.failure_trend()),
                 "query": q or "",
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
+                "scheduler": _scheduler_status(app),
             },
         )
 
@@ -88,6 +110,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 "filters": filter_set,
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
+                "scheduler": _scheduler_status(app),
             },
         )
 
@@ -100,6 +123,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             "report": report.as_dict(),
             "store": app.state.store.store_info(),
             "telemetry": _telemetry_info(),
+            "scheduler": _scheduler_status(app),
         }
         return render_template(request, "replay.html", context)
 
@@ -123,6 +147,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             "selected_b": run_b,
             "store": app.state.store.store_info(),
             "telemetry": _telemetry_info(),
+            "scheduler": _scheduler_status(app),
         }
         return render_template(request, "compare.html", context)
 
@@ -142,6 +167,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 "limit": limit,
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
+                "scheduler": _scheduler_status(app),
             },
         )
 
@@ -159,6 +185,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 ),
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
+                "scheduler": _scheduler_status(app),
             },
         )
 
@@ -185,6 +212,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 "protected_runs": len(protected),
                 "library": app.state.store.library_report()["totals"],
                 "history": app.state.store.sweep_history(10),
+                "scheduler": _scheduler_status(app),
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
             },
@@ -294,6 +322,16 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         limit: int = Query(default=20, ge=1, le=100),
     ) -> list[dict[str, Any]]:
         return app.state.store.sweep_history(limit)
+
+    @app.get("/api/cleanup/schedule")
+    def api_cleanup_schedule() -> dict[str, Any]:
+        return _scheduler_status(app)
+
+    @app.get("/api/trend")
+    def api_trend(
+        days: int = Query(default=14, ge=1, le=90),
+    ) -> list[dict[str, Any]]:
+        return app.state.store.failure_trend(days)
 
     @app.get("/api/report", response_model=None)
     def api_report(
@@ -460,6 +498,27 @@ def _build_replay_engine() -> ReplayEngine:
     return engine
 
 
+def _build_cleanup_scheduler(store: TraceStore) -> CleanupScheduler | None:
+    """Build the server-side retention scheduler from local environment config.
+
+    The scheduler stays off until the operator sets
+    ATW_CLEANUP_EVERY_SECONDS. Local cleanup stays opt-in, because a
+    background delete must never surprise the person running the server.
+    """
+
+    every_seconds = _env_float("ATW_CLEANUP_EVERY_SECONDS", None)
+    if every_seconds is None:
+        return None
+    older_than_days = _env_int("ATW_CLEANUP_OLDER_THAN_DAYS", 30)
+    keep_labeled = _env_flag("ATW_CLEANUP_KEEP_LABELED", True)
+    return CleanupScheduler(
+        store,
+        every_seconds=every_seconds,
+        older_than_days=older_than_days,
+        keep_labeled=keep_labeled,
+    )
+
+
 def render_template(request: Request, name: str, context: dict[str, Any]) -> HTMLResponse:
     """Render the polished template or a small offline fallback."""
 
@@ -548,6 +607,26 @@ def _env_int(name: str, default: int) -> int:
         raise ValueError(f"{name} must be an integer") from None
 
 
+def _env_float(name: str, default: float | None) -> float | None:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        parsed = float(value)
+    except ValueError:
+        raise ValueError(f"{name} must be a number") from None
+    if parsed <= 0:
+        raise ValueError(f"{name} must be positive")
+    return parsed
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in ("0", "false", "no", "off", "")
+
+
 def _retention_cutoff(days: int) -> datetime:
     """Return the UTC instant before which a run counts as old."""
 
@@ -581,6 +660,70 @@ def _telemetry_info() -> dict[str, str]:
     if endpoint:
         return {"collector_endpoint": endpoint, "collector_url": traces_url(endpoint)}
     return {"collector_endpoint": "", "collector_url": ""}
+
+
+def _scheduler_status(app: FastAPI) -> dict[str, Any]:
+    """Return the retention scheduler state for the footer and pages.
+
+    A disabled scheduler keeps the same shape, so templates can render
+    one layout whether the server sweeps in the background or not.
+    """
+
+    scheduler = app.state.cleanup_scheduler
+    if scheduler is None:
+        return {
+            "enabled": False,
+            "interval_seconds": None,
+            "older_than_days": None,
+            "keep_labeled": None,
+            "last_sweep_at": None,
+            "last_error": None,
+        }
+    return scheduler.status()
+
+
+def _trend_chart(trend: list[dict[str, Any]]) -> dict[str, Any]:
+    """Shape a failure trend into SVG-ready data for the dashboard.
+
+    The helper maps each day to a point on a fixed view box. It returns
+    the point list, a few day labels, and the window totals so the
+    template can draw one line chart without any charting dependency.
+    """
+
+    width = 680
+    height = 150
+    pad_x = 8
+    pad_y = 10
+    count = len(trend)
+    step = (width - 2 * pad_x) / max(count - 1, 1)
+    points = []
+    for index, item in enumerate(trend):
+        x = round(pad_x + index * step, 2)
+        rate = min(item["failure_rate"], 1.0)
+        y = round(height - pad_y - rate * (height - 2 * pad_y), 2)
+        points.append({**item, "x": x, "y": y})
+    label_indices = sorted({0, count - 1, count // 2}) if count else []
+    labels = [
+        {"x": points[index]["x"], "day": points[index]["day"]}
+        for index in label_indices
+        if index < count
+    ]
+    totals = {
+        "runs": sum(item["runs"] for item in trend),
+        "failures": sum(item["failures"] for item in trend),
+    }
+    totals["failure_rate"] = (
+        round(totals["failures"] / totals["runs"], 4) if totals["runs"] else 0.0
+    )
+    return {
+        "width": width,
+        "height": height,
+        "days": count,
+        "points": points,
+        "labels": labels,
+        "active_days": sum(1 for item in trend if item["runs"] > 0),
+        "totals": totals,
+    }
 
 
 def _span_filter_set(
