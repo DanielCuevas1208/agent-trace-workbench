@@ -199,4 +199,86 @@
             }
         });
     }
+
+    const detailPanel = document.querySelector("#span-detail-panel");
+    if (detailPanel) {
+        const body = detailPanel.querySelector("#span-detail-body");
+        const title = detailPanel.querySelector("#span-detail-name");
+        const runId = detailPanel.dataset.runId;
+        const openDetail = async (spanId) => {
+            title.textContent = "Loading span...";
+            detailPanel.hidden = false;
+            body.className = "span-detail-body";
+            body.textContent = "";
+            try {
+                const response = await fetch(
+                    `/api/runs/${encodeURIComponent(runId)}/spans/${encodeURIComponent(spanId)}`,
+                );
+                const detail = await response.json();
+                if (!response.ok) throw new Error(detail.detail || "Span could not be loaded.");
+                title.textContent = `${detail.name} · ${detail.span_id}`;
+                renderSpanDetail(body, detail);
+            } catch (error) {
+                body.className = "span-detail-body error";
+                body.textContent = error.message;
+            }
+        };
+        document.querySelectorAll("[data-span-id]").forEach((target) => {
+            target.addEventListener("click", () => openDetail(target.dataset.spanId));
+        });
+        document.querySelector("#span-detail-close").addEventListener("click", () => {
+            detailPanel.hidden = true;
+        });
+    }
+
+    const renderSpanDetail = (body, detail) => {
+        body.textContent = "";
+        const meta = document.createElement("p");
+        meta.className = "span-detail-meta";
+        meta.textContent = `${detail.kind} · ${detail.status} · ${detail.start_offset_ms} ms to ${detail.end_offset_ms} ms · ${detail.duration_ms} ms`;
+        body.append(meta);
+        if (detail.error) {
+            const box = document.createElement("div");
+            box.className = "failure-box";
+            const label = document.createElement("strong");
+            label.textContent = "Failure";
+            const message = document.createElement("span");
+            message.textContent = detail.error;
+            box.append(label, message);
+            body.append(box);
+        }
+        if (detail.tool_call) {
+            const grid = document.createElement("div");
+            grid.className = "tool-grid";
+            grid.append(spanJsonCell("Arguments", detail.tool_call.arguments));
+            grid.append(spanJsonCell("Result", detail.tool_call.result));
+            body.append(grid);
+        }
+        if (detail.attributes && Object.keys(detail.attributes).length) {
+            const attributes = document.createElement("details");
+            attributes.className = "attributes";
+            const summary = document.createElement("summary");
+            summary.textContent = "Span attributes";
+            const pre = document.createElement("pre");
+            pre.textContent = JSON.stringify(detail.attributes, null, 2);
+            attributes.append(summary, pre);
+            body.append(attributes);
+        }
+        const waterfall = document.createElement("a");
+        waterfall.className = "button button-quiet span-detail-link";
+        waterfall.href = `#span-${encodeURIComponent(detail.span_id)}`;
+        waterfall.textContent = "Open in waterfall";
+        body.append(waterfall);
+    };
+
+    const spanJsonCell = (label, value) => {
+        const cell = document.createElement("div");
+        const heading = document.createElement("span");
+        heading.className = "field-label";
+        heading.textContent = label;
+        const pre = document.createElement("pre");
+        pre.textContent = value === undefined || value === null ? "null" : JSON.stringify(value, null, 2);
+        cell.append(heading, pre);
+        return cell;
+    };
 })();

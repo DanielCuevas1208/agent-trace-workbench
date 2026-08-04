@@ -4,6 +4,27 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.10.0 - 2026-08-04
+
+### Added
+
+- A span detail panel on the run-level error timeline.
+- An Inspect button on each timeline event row that opens the full span record.
+- Clickable timeline markers that open the same span detail panel.
+- A detail panel that shows the span kind, status, offsets, duration, attributes, and tool call.
+- The detail panel shows the recorded arguments, result, outcome, and failure message.
+- A link in the detail panel that jumps to the matching span in the trace waterfall.
+- `GET /api/runs/{run_id}/spans/{span_id}` route that returns the full span record for scripts.
+- `atw span <run_id> <span_id>` command that prints the same span detail.
+- Deterministic tests for the span detail, the API route, the CLI command, and the run page panel.
+
+### Changed
+
+- Version numbers moved to 1.10.0.
+- The error timeline rows now carry an Inspect action beside the waterfall jump.
+- The timeline markers respond to click and keyboard focus.
+- The architecture now includes a span detail layer beside the run-level error timeline.
+
 ## 1.9.0 - 2026-08-04
 
 ### Added
