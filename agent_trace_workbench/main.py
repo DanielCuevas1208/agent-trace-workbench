@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from html import escape
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
@@ -19,7 +19,13 @@ from fastapi.templating import Jinja2Templates
 from . import __version__
 from .collector import export_run_to_collector
 from .compare import compare_runs
-from .export import comparison_to_csv, report_to_csv, run_tools_to_csv, trend_to_csv
+from .export import (
+    comparison_to_csv,
+    day_runs_to_csv,
+    report_to_csv,
+    run_tools_to_csv,
+    trend_to_csv,
+)
 from .handlers import ReplayPolicy, load_handler_config
 from .models import (
     BulkLabelRequest,
@@ -75,22 +81,42 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         request: Request,
         q: str | None = Query(default=None, max_length=200),
         agent: str | None = Query(default=None, max_length=200),
+        days: int = Query(default=14, ge=1, le=90),
+        day: str | None = Query(default=None, max_length=10),
     ) -> Any:
         runs = app.state.store.search_runs(q) if q else app.state.store.list_runs()
         selected_agent = agent or ""
+        trend = app.state.store.failure_trend(days, agent_name=selected_agent or None)
+        chart = _trend_chart(trend)
+        for point in chart["points"]:
+            point["href"] = _day_href(selected_agent, days, point["day"])
+        day_names = {point["day"] for point in chart["points"]}
+        selected_day = day if day in day_names else None
+        day_runs = (
+            app.state.store.runs_on_day(
+                selected_day, agent_name=selected_agent or None
+            )
+            if selected_day
+            else None
+        )
         return render_template(
             request,
             "dashboard.html",
             {
                 "runs": runs,
                 "stats": _stats(runs),
-                "trend": _trend_chart(
-                    app.state.store.failure_trend(agent_name=selected_agent or None)
-                ),
+                "trend": chart,
                 "query": q or "",
                 "trend_agents": app.state.store.trend_agents(),
                 "selected_agent": selected_agent,
-                "trend_links": _trend_links(selected_agent),
+                "selected_day": selected_day,
+                "day_runs": day_runs,
+                "day_csv_link": (
+                    _day_csv_href(selected_agent, selected_day)
+                    if selected_day
+                    else None
+                ),
+                "trend_links": _trend_links(selected_agent, days),
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
                 "scheduler": _scheduler_status(app),
@@ -355,6 +381,28 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/trend/agents")
     def api_trend_agents() -> list[str]:
         return app.state.store.trend_agents()
+
+    @app.get("/api/trend/{day}", response_model=None)
+    def api_trend_day(
+        day: str,
+        agent: str | None = Query(default=None, max_length=200),
+        export_format: str = Query(default="json", alias="format"),
+    ) -> Response | dict[str, Any]:
+        try:
+            runs = app.state.store.runs_on_day(day, agent_name=agent)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="day must use the YYYY-MM-DD format"
+            ) from None
+        if export_format == "csv":
+            return _download_response(
+                day_runs_to_csv(day, runs, agent_name=agent or ""),
+                f"runs-{day}.csv",
+                "text/csv; charset=utf-8",
+            )
+        if export_format != "json":
+            raise HTTPException(status_code=400, detail="format must be 'json' or 'csv'")
+        return {"day": day, "agent": agent or "", "runs": runs}
 
     @app.get("/api/report", response_model=None)
     def api_report(
@@ -749,20 +797,54 @@ def _trend_chart(trend: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _trend_links(selected_agent: str) -> dict[str, str]:
+def _trend_links(selected_agent: str, days: int) -> dict[str, str]:
     """Return the JSON and CSV export links for the dashboard trend panel.
 
-    The links keep the active agent filter, so a download matches what
-    the panel draws. Agent names are URL-encoded because they may contain
-    spaces or punctuation.
+    The links keep the active agent filter and any non-default window
+    size, so a download matches what the panel draws. Agent names are
+    URL-encoded because they may contain spaces or punctuation.
     """
 
-    prefix = f"?agent={quote(selected_agent)}" if selected_agent else ""
-    join = "&" if prefix else "?"
+    params: dict[str, Any] = {}
+    if days != 14:
+        params["days"] = days
+    if selected_agent:
+        params["agent"] = selected_agent
+    if not params:
+        return {"json": "/api/trend", "csv": "/api/trend?format=csv"}
+    prefix = urlencode(params)
     return {
-        "json": f"/api/trend{prefix}",
-        "csv": f"/api/trend{prefix}{join}format=csv",
+        "json": f"/api/trend?{prefix}",
+        "csv": f"/api/trend?{prefix}&format=csv",
     }
+
+
+def _day_href(selected_agent: str, days: int, day: str) -> str:
+    """Return the drill-down link for one day on the trend chart.
+
+    The link keeps the window size and the agent filter, so the day view
+    matches the panel that drew it. It anchors on the day panel below the
+    chart.
+    """
+
+    params: dict[str, Any] = {"days": days, "day": day}
+    if selected_agent:
+        params["agent"] = selected_agent
+    return f"/?{urlencode(params)}#trend-day"
+
+
+def _day_csv_href(selected_agent: str, day: str) -> str:
+    """Return the CSV download link for one day drill-down panel.
+
+    The link keeps the active agent filter, so the file matches what the
+    panel lists. Agent names are URL-encoded for the same reason as the
+    trend export links.
+    """
+
+    params: dict[str, Any] = {"format": "csv"}
+    if selected_agent:
+        params["agent"] = selected_agent
+    return f"/api/trend/{day}?{urlencode(params)}"
 
 
 def _span_filter_set(

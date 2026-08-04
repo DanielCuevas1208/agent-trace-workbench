@@ -4,6 +4,29 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.6.0 - 2026-08-04
+
+### Added
+
+- A trend window selector on the dashboard chart for 7, 14, 30, and 90 day views.
+- A per-day trend drill-down that lists the runs started on one UTC calendar day.
+- Clickable day dots on the trend chart that open the drill-down for that day.
+- A day panel on the dashboard that shows the day runs and links each one to its page.
+- `GET /api/trend?days=<n>` option that sets the trend window for scripts.
+- `GET /api/trend/{day}` route that returns the runs started on one day, with an `agent` filter.
+- `GET /api/trend/{day}?format=csv` route that returns the day runs as a CSV attachment.
+- `atw trend --day <YYYY-MM-DD>` command that lists the runs started on one day.
+- `atw trend --day <YYYY-MM-DD> --format csv` command that prints the day runs as CSV.
+- The dashboard export links keep the active window size and agent filter.
+- Deterministic tests for the window selector, the drill-down, the day routes, the day CSV, and the CLI options.
+
+### Changed
+
+- Version numbers moved to 1.6.0.
+- The dashboard trend filter now carries a window selector beside the agent filter.
+- The dashboard keeps the selected day and window when it searches or changes filters.
+- The architecture now includes a per-day trend drill-down beside the failure trend.
+
 ## 1.5.0 - 2026-08-04
 
 ### Added

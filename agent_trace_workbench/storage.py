@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 from uuid import uuid4
@@ -771,6 +771,38 @@ class TraceStore:
                 }
             )
         return buckets
+
+    def runs_on_day(
+        self,
+        day: str,
+        *,
+        agent_name: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Return run summaries that started on one UTC calendar day.
+
+        The drill-down view uses this method. A reviewer clicks a day on
+        the trend chart and sees the runs that started that day. Pass
+        agent_name to keep the day view in sync with the trend filter.
+        The day must use the YYYY-MM-DD format.
+        """
+
+        try:
+            date.fromisoformat(day)
+        except ValueError:
+            raise ValueError("day must be a YYYY-MM-DD date") from None
+        safe_limit = max(1, min(limit, 100))
+        query = "SELECT * FROM runs WHERE substr(started_at, 1, 10) = ?"
+        params: list[Any] = [day]
+        if agent_name:
+            query += " AND agent_name = ?"
+            params.append(agent_name)
+        query += " ORDER BY started_at DESC, run_id DESC LIMIT ?"
+        params.append(safe_limit)
+        with traced_operation("storage.runs_on_day", {"trend.day": day}):
+            with self._connect() as connection:
+                rows = connection.execute(query, params).fetchall()
+                return _summarize_runs(connection, rows)
 
     def get_run(
         self,
