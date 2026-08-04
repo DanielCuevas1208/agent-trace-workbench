@@ -4,6 +4,29 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.8.0 - 2026-08-04
+
+### Added
+
+- An agent comparison overlay on the dashboard failure trend.
+- A second failure line that draws one agent beside the primary series.
+- A compare select on the trend filter that lists the recorded agents except the primary one.
+- A legend that shows the failure rate of each drawn series.
+- `GET /api/trend/overlay` route that returns both trend series for scripts.
+- `GET /api/trend/overlay?format=csv` route that returns the series as a CSV attachment.
+- A `series` column in the overlay CSV that marks each row as primary or compare.
+- `atw trend --compare <name>` command that prints both failure trend series.
+- `atw trend --compare <name> --format csv` command that prints the series as CSV.
+- Dashboard JSON and CSV download links that keep the compare agent and window.
+- Deterministic tests for the overlay, the API routes, the CLI options, the CSV export, and the dashboard panel.
+
+### Changed
+
+- Version numbers moved to 1.8.0.
+- The dashboard trend chart can now draw two failure lines on one time axis.
+- The architecture now includes an agent comparison overlay beside the failure trend.
+- CI now uses the latest GitHub Actions checkout and setup-python actions.
+
 ## 1.7.0 - 2026-08-04
 
 ### Added

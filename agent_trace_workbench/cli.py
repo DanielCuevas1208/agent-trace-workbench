@@ -18,6 +18,7 @@ from .export import (
     report_to_csv,
     run_tools_to_csv,
     status_trend_to_csv,
+    trend_overlay_to_csv,
     trend_to_csv,
 )
 from .handlers import ReplayPolicy, load_handler_config
@@ -154,6 +155,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--agent",
         default=None,
         help="Restrict the trend to one agent name",
+    )
+    trend.add_argument(
+        "--compare",
+        default=None,
+        help="Draw a second failure line for one agent comparison",
     )
     trend.add_argument(
         "--format",
@@ -424,6 +430,16 @@ def main() -> None:
                 )
         elif args.days < 1 or args.days > 90:
             raise SystemExit("--days must be between 1 and 90")
+        elif args.compare:
+            if args.compare == (args.agent or ""):
+                raise SystemExit("--compare must differ from --agent")
+            overlay = store.failure_trend_overlay(
+                args.days, agent_name=args.agent, compare_agent=args.compare
+            )
+            if args.format == "csv":
+                print(trend_overlay_to_csv(overlay), end="")
+            else:
+                print(json.dumps(overlay, indent=2))
         elif args.statuses:
             buckets = store.status_trend(args.days, agent_name=args.agent)
             if args.format == "csv":

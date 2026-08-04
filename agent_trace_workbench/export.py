@@ -69,6 +69,15 @@ _REPORT_HEADERS = [
 
 _TREND_HEADERS = ["day", "agent_name", "runs", "failures", "failure_rate"]
 
+_TREND_OVERLAY_HEADERS = [
+    "day",
+    "series",
+    "agent_name",
+    "runs",
+    "failures",
+    "failure_rate",
+]
+
 _STATUS_TREND_HEADERS = ["day", "agent_name", "status", "runs"]
 
 _DAY_RUNS_HEADERS = [
@@ -264,6 +273,41 @@ def trend_to_csv(trend: list[dict[str, Any]], agent_name: str = "") -> str:
                 }
             )
         return _to_csv(_TREND_HEADERS, rows)
+
+
+def trend_overlay_to_csv(overlay: dict[str, Any]) -> str:
+    """Render an agent comparison overlay as a CSV document.
+
+    The document lists one row per day per series. A series column marks
+    each row as the primary line or the compare line, so a spreadsheet
+    can plot both series from one file. Empty days stay in both series,
+    because the overlay shares one time axis.
+    """
+
+    primary = overlay["primary"]
+    compare = overlay["compare"]
+    attributes = {
+        "trend.days": len(primary),
+        "trend.compare": overlay.get("compare_agent", ""),
+    }
+    with traced_operation("export.trend_overlay_csv", attributes):
+        rows: list[dict[str, Any]] = []
+        for series, buckets, agent_name in (
+            ("primary", primary, overlay.get("primary_agent", "")),
+            ("compare", compare, overlay.get("compare_agent", "")),
+        ):
+            for bucket in buckets:
+                rows.append(
+                    {
+                        "day": bucket["day"],
+                        "series": series,
+                        "agent_name": agent_name,
+                        "runs": bucket["runs"],
+                        "failures": bucket["failures"],
+                        "failure_rate": _number(bucket.get("failure_rate")),
+                    }
+                )
+        return _to_csv(_TREND_OVERLAY_HEADERS, rows)
 
 
 def status_trend_to_csv(

@@ -772,6 +772,40 @@ class TraceStore:
             )
         return buckets
 
+    def failure_trend_overlay(
+        self,
+        days: int = 14,
+        *,
+        agent_name: str | None = None,
+        compare_agent: str,
+    ) -> dict[str, Any]:
+        """Return two daily failure trends for an agent comparison overlay.
+
+        The primary series follows the same rule as failure_trend: it
+        covers every recorded agent unless agent_name is set. The compare
+        series covers compare_agent only. Both series share one UTC
+        calendar window, so the dashboard can draw them on the same time
+        axis. The overlay rejects an empty compare agent and a compare
+        agent equal to the primary filter, because those would draw one
+        line twice.
+        """
+
+        if not compare_agent or not compare_agent.strip():
+            raise ValueError("compare_agent must not be empty")
+        if agent_name and compare_agent == agent_name:
+            raise ValueError("compare_agent must differ from agent_name")
+        attributes = {"trend.days": days, "trend.compare": compare_agent}
+        with traced_operation("storage.failure_trend_overlay", attributes):
+            primary = self.failure_trend(days, agent_name=agent_name)
+            compare = self.failure_trend(days, agent_name=compare_agent)
+        return {
+            "days": len(primary),
+            "primary_agent": agent_name or "",
+            "compare_agent": compare_agent,
+            "primary": primary,
+            "compare": compare,
+        }
+
     def status_trend(
         self,
         days: int = 14,

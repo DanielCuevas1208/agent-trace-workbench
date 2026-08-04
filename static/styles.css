@@ -206,7 +206,12 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--navy); c
 .trend-chart { position: relative; }
 .trend-svg { display: block; width: 100%; height: 150px; overflow: visible; }
 .trend-line { fill: none; stroke: var(--coral); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.trend-line-compare { stroke: var(--blue); stroke-width: 2; stroke-dasharray: 5 4; }
 .trend-dot { fill: var(--coral); stroke: #fff; stroke-width: 1.2; transition: r .12s ease; }
+.trend-dot-compare { fill: var(--blue); stroke: #fff; stroke-width: 1.2; pointer-events: none; }
+.swatch-primary { background: var(--coral); }
+.swatch-compare { background: var(--blue); }
+.trend-legend-overlay { margin-top: 14px; padding-top: 14px; }
 .trend-dot-link { cursor: pointer; }
 .trend-dot-link:hover .trend-dot, .trend-dot-link:focus-visible .trend-dot { r: 5.2; fill: var(--navy); }
 .trend-dot-link:focus-visible { outline: 0; }
