@@ -4,6 +4,29 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.9.0 - 2026-08-04
+
+### Added
+
+- A run-level error timeline on the run detail page.
+- A horizontal time axis that marks each failed span at its offset from the run start.
+- A marker chart that shows when the failures happened inside one run.
+- An event list below the chart with each span name, kind, offset, and failure message.
+- A clickable event row that jumps to the matching span in the trace waterfall.
+- `GET /api/runs/{run_id}/timeline` route that returns the failed spans for scripts.
+- `GET /api/runs/{run_id}/timeline?format=csv` route that returns the events as a CSV attachment.
+- `atw timeline <run_id>` command that prints the error timeline.
+- `atw timeline <run_id> --format csv` command that prints the events as CSV.
+- Run page JSON and CSV download links for the timeline panel.
+- Deterministic tests for the timeline, the API routes, the CLI options, the CSV export, and the run page panel.
+
+### Changed
+
+- Version numbers moved to 1.9.0.
+- The run detail page now shows when failures happened beside the trace waterfall.
+- The trace waterfall rows carry span IDs so the timeline can link to them.
+- The architecture now includes a run-level error timeline beside the trace inspection layer.
+
 ## 1.8.0 - 2026-08-04
 
 ### Added

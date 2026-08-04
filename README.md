@@ -26,11 +26,13 @@ Release 1.7 adds a status breakdown beside the daily failure line. Each trend da
 
 Release 1.8 adds an agent comparison overlay to the failure trend. Choose a second agent on the dashboard and the chart draws its failure line beside the primary series. Read both series from the API, the CLI, or a CSV file.
 
+Release 1.9 adds a run-level error timeline to the run detail page. It marks each failed span at its offset from the run start. Read the same events from the API, the CLI, or a CSV file.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
 
-This workbench makes each boundary visible. It shows inputs, outputs, timing, attributes, and errors in one local record.
+This workbench makes each boundary visible. It shows inputs, outputs, timing, attributes, and errors in one local record. The error timeline marks where each failure happened.
 
 The design supports repeatable review. A replay runs a registered local handler when available. It uses the recorded result when no handler exists.
 
@@ -68,14 +70,14 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 - `models.py` defines the portable trace contract.
 - `handlers.py` loads local handler config and applies side-effect guards.
-- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It also computes the review list, applies bulk labels, builds the library report, computes the daily failure trend, the status breakdown, and the agent comparison overlay, lists the runs for one day, and enforces the retention cutoff for cleanup. A cleanup log records each scheduled sweep.
+- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It computes the review list, bulk labels, and the library report. It computes the failure trend, status breakdown, agent overlay, and run error timeline. It lists the runs for one day and enforces the retention cutoff. A cleanup log records each scheduled sweep.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
 - `compare.py` aligns tool calls by recorded position and reports field-level deltas.
-- `export.py` renders comparisons, run tool calls, library reports, failure trends, and day run lists as CSV files.
+- `export.py` renders comparisons, run tool calls, library reports, failure trends, error timelines, and day run lists as CSV files.
 - `collector.py` posts recorded runs to a local collector over OTLP HTTP JSON.
-- `main.py` serves the interface and the JSON API.
+- `main.py` serves the interface and the JSON API. It also shapes the dashboard charts and the run error timeline.
 - `scheduler.py` runs server-side retention sweeps on an interval.
 - `telemetry.py` creates OpenTelemetry spans and exports them locally.
 
@@ -112,7 +114,7 @@ uvicorn agent_trace_workbench.main:app --reload
 
 Open `http://127.0.0.1:8000` in a browser.
 
-The dashboard shows both runs. The candidate includes a reservation failure. The trend panel draws the daily failure rate for the recorded evidence.
+The dashboard shows both runs. The candidate includes a reservation failure. Its run page marks the failure on the error timeline. The trend panel draws the daily failure rate for the recorded evidence.
 
 Load the second agent to exercise the trend filter.
 
@@ -229,6 +231,77 @@ curl.exe "http://127.0.0.1:8000/api/runs/run-candidate-001?kind=tool&status=erro
 The response keeps only matching spans. The run metrics still show full totals.
 
 Use the drop-downs on a run page. Clear the filters to see every span.
+
+## Error timeline
+
+Open one run to see where its failures happened.
+
+The run page draws a horizontal time axis. Each failed span appears as a marker at its offset from the run start. A span counts as failed when its status is error or its tool call outcome is failure.
+
+Read the timeline over the API.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/runs/run-candidate-001/timeline"
+```
+
+The response lists every failed span in recorded order.
+
+```json
+{
+  "run_id": "run-candidate-001",
+  "started_at": "2026-07-31T09:05:00+00:00",
+  "ended_at": "2026-07-31T09:05:00.280000+00:00",
+  "duration_ms": 280.0,
+  "error_count": 2,
+  "events": [
+    {
+      "span_id": "span-agent-101",
+      "name": "agent.run",
+      "kind": "agent",
+      "status": "error",
+      "start_offset_ms": 0.0,
+      "end_offset_ms": 280.0,
+      "duration_ms": 280.0,
+      "error": "agent.run ended with status error"
+    },
+    {
+      "span_id": "span-tool-103",
+      "name": "reserve_inventory",
+      "kind": "tool",
+      "status": "error",
+      "start_offset_ms": 205.0,
+      "end_offset_ms": 260.0,
+      "duration_ms": 55.0,
+      "error": "reservation window expired"
+    }
+  ]
+}
+```
+
+A tool call keeps its recorded error message. Other failed spans get a generated message.
+
+Download the timeline as a CSV document.
+
+```powershell
+curl.exe -o error-timeline.csv "http://127.0.0.1:8000/api/runs/run-candidate-001/timeline?format=csv"
+```
+
+The file lists one row per failed span.
+
+```text
+run_id,span_id,sequence,name,kind,status,start_offset_ms,end_offset_ms,duration_ms,error
+run-candidate-001,span-agent-101,0,agent.run,agent,error,0.0,280.0,280.0,agent.run ended with status error
+run-candidate-001,span-tool-103,3,reserve_inventory,tool,error,205.0,260.0,55.0,reservation window expired
+```
+
+Use the CLI for scripts.
+
+```powershell
+python -m agent_trace_workbench.cli timeline run-candidate-001
+python -m agent_trace_workbench.cli timeline run-candidate-001 --format csv
+```
+
+The run page lists each event below the chart. Click an event row to jump to the matching span in the trace waterfall.
 
 ## Failure trend
 
@@ -1334,7 +1407,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, reports, retention cleanup, and scheduled cleanup. It covers the CLI, the API, collector export, the server scheduler, and the dashboard failure trend, including the agent filter, the window selector, the day drill-down, the status breakdown, the agent comparison overlay, and the CSV exports.
+The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, and annotations. It covers bulk labels, export, review, reports, retention, and scheduled cleanup. It covers the CLI, the API, collector export, and the server scheduler. It covers the dashboard trend, including the agent filter, window selector, day drill-down, status breakdown, overlay, and the run error timeline. The CSV exports have their own tests.
 
 Run the checks with these commands.
 
@@ -1345,7 +1418,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 329 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 344 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -1409,6 +1482,16 @@ The day drill-down groups runs by the UTC calendar day they started. It ignores 
 
 The day CSV repeats the active agent in every row. The all-agents view leaves that cell empty.
 
+The error timeline marks spans with an error status or a failed tool outcome.
+
+The timeline offsets count from the recorded run start. A span that starts before the run start clamps to zero.
+
+The timeline lists one marker per failed span. It does not mark recovered retries.
+
+The timeline CSV lists one row per failed span. Clean runs produce only the header row.
+
+A tool call keeps its recorded error message. Other spans get a generated message.
+
 The cleanup history records policy and counts. It does not store the deleted traces.
 
 The report retention line counts runs under the current policy. It uses `older_than_days` from the request or the 30-day default.
@@ -1464,13 +1547,14 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 1.6 complete: add a trend window selector and a per-day drill-down on the dashboard chart.
 - Release 1.7 complete: add a status breakdown beside the daily failure line on the dashboard.
 - Release 1.8 complete: add an agent comparison overlay to the failure trend.
-- Release 1.9: add a run-level error timeline to the run detail page.
+- Release 1.9 complete: add a run-level error timeline to the run detail page.
+- Release 1.10: add a span detail panel to the run-level error timeline.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline, candidate, and second-agent traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, reports, retention cleanup, scheduled cleanup, the server scheduler, and the failure trend, including the agent filter, the window selector, the day drill-down, the status breakdown, the agent comparison overlay, and the CSV exports.
+`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, and export. It covers review, reports, retention cleanup, scheduled cleanup, and the server scheduler. It covers the failure trend, including the agent filter, window selector, day drill-down, status breakdown, overlay, and the run error timeline.
 
 `static/` and `templates/` contain the presentation layer.
 

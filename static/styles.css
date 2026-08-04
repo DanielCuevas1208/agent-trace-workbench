@@ -111,6 +111,23 @@ select { min-height: 44px; padding: 0 12px; font-family: inherit; }
 .review-note { display: flex; flex-direction: column; gap: 5px; margin-top: 14px; padding: 13px; border-left: 3px solid var(--blue); background: rgba(44,111,159,.06); color: var(--navy); font-size: 13px; line-height: 1.55; }
 .review-note strong { font: 800 9px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .1em; text-transform: uppercase; }
 .trace-section { padding-top: 62px; }
+.timeline-section { padding: 20px 0 30px; }
+.timeline-panel { padding: 24px 26px 20px; }
+.timeline-chart { position: relative; }
+.timeline-svg { display: block; width: 100%; height: 60px; overflow: visible; }
+.timeline-axis { stroke: var(--line); stroke-width: 2; }
+.timeline-stem { stroke: var(--coral); stroke-width: 1.5; }
+.timeline-dot { fill: var(--coral); stroke: #fff; stroke-width: 1.4; }
+.timeline-scale { display: flex; justify-content: space-between; margin-top: 4px; color: var(--muted); font-size: 10px; }
+.timeline-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.timeline-foot .button { min-height: 36px; padding: 0 11px; font-size: 10px; }
+.timeline-list { margin-top: 18px; border-top: 1px solid var(--line); }
+.timeline-row { display: grid; grid-template-columns: 14px 1fr 2fr; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.timeline-row:hover strong, .timeline-row:hover .timeline-error { color: var(--blue); }
+.timeline-row strong { display: block; margin-bottom: 3px; color: var(--navy); font-size: 14px; }
+.timeline-row small { color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.timeline-marker { width: 8px; height: 8px; border-radius: 50%; background: var(--coral); }
+.timeline-error { color: var(--coral); font-size: 12px; }
 .trace-list, .replay-list { border-top: 1px solid var(--line); }
 .trace-row { display: grid; grid-template-columns: 27px 1fr; gap: 12px; padding: 20px 0 25px; }
 .trace-rail { position: relative; display: flex; justify-content: center; }

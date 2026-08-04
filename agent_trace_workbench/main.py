@@ -22,6 +22,7 @@ from .compare import compare_runs
 from .export import (
     comparison_to_csv,
     day_runs_to_csv,
+    error_timeline_to_csv,
     report_to_csv,
     run_tools_to_csv,
     status_trend_to_csv,
@@ -172,12 +173,15 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         run = app.state.store.get_run(
             run_id, span_kind=kind, span_status=status, span_tool=tool
         )
+        timeline = app.state.store.error_timeline(run_id)
         return render_template(
             request,
             "run.html",
             {
                 "run": run,
                 "filters": filter_set,
+                "timeline": _error_timeline_chart(timeline) if timeline else None,
+                "timeline_csv_link": f"/api/runs/{run_id}/timeline?format=csv",
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
                 "scheduler": _scheduler_status(app),
@@ -512,6 +516,24 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         return _get_run_or_404(
             app.state.store, run_id, span_kind=kind, span_status=status, span_tool=tool
         )
+
+    @app.get("/api/runs/{run_id}/timeline", response_model=None)
+    def api_run_timeline(
+        run_id: str,
+        export_format: str = Query(default="json", alias="format"),
+    ) -> Response | dict[str, Any]:
+        timeline = app.state.store.error_timeline(run_id)
+        if timeline is None:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        if export_format == "csv":
+            return _download_response(
+                error_timeline_to_csv(timeline),
+                f"{run_id}-error-timeline.csv",
+                "text/csv; charset=utf-8",
+            )
+        if export_format != "json":
+            raise HTTPException(status_code=400, detail="format must be 'json' or 'csv'")
+        return timeline
 
     @app.post("/api/traces", status_code=201)
     def api_ingest(trace: TraceDocument, request: Request) -> dict[str, Any]:
@@ -1090,6 +1112,40 @@ def _day_csv_href(selected_agent: str, day: str) -> str:
     if selected_agent:
         params["agent"] = selected_agent
     return f"/api/trend/{day}?{urlencode(params)}"
+
+
+def _error_timeline_chart(timeline: dict[str, Any]) -> dict[str, Any]:
+    """Shape an error timeline into SVG-ready data for the run page.
+
+    The helper maps each failed span to a marker on a fixed view box.
+    The marker position tracks the offset from the run start, so the
+    panel shows when the failures happened on one time axis. The return
+    value carries the marker geometry and the event details for the
+    list below the chart.
+    """
+
+    width = 680
+    height = 60
+    pad_x = 16
+    duration_ms = timeline.get("duration_ms", 0.0)
+    plot_width = width - 2 * pad_x
+    events = []
+    for event in timeline["events"]:
+        fraction = (
+            min(max(event["start_offset_ms"] / duration_ms, 0.0), 1.0)
+            if duration_ms > 0
+            else 0.0
+        )
+        x = round(pad_x + fraction * plot_width, 2)
+        events.append({**event, "x": x})
+    return {
+        "width": width,
+        "height": height,
+        "duration_ms": duration_ms,
+        "error_count": timeline.get("error_count", 0),
+        "has_errors": bool(events),
+        "events": events,
+    }
 
 
 def _span_filter_set(

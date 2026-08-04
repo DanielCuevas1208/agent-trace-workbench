@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar
 from uuid import uuid4
 
-from .models import TraceDocument
+from .models import TraceDocument, ensure_utc
 from .telemetry import traced_operation
 
 _T = TypeVar("_T")
@@ -944,6 +944,61 @@ class TraceStore:
             ).fetchone()
         return TraceDocument.model_validate_json(row["raw_json"]) if row else None
 
+    def error_timeline(self, run_id: str) -> dict[str, Any] | None:
+        """Return the failed spans of one run as a time-ordered timeline.
+
+        The timeline places each failed span on the run time axis. It
+        reports the offset from the run start, so a reviewer sees when
+        the failures happened. A failed span has an error status or a
+        tool call with a failure outcome. The run detail page draws the
+        events as markers on one horizontal axis.
+        """
+
+        with traced_operation("storage.error_timeline", {"run.id": run_id}):
+            with self._connect() as connection:
+                run = connection.execute(
+                    "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                if run is None:
+                    return None
+                rows = connection.execute(
+                    """
+                    SELECT * FROM spans WHERE run_id = ?
+                    ORDER BY sequence_index IS NULL, sequence_index, start_time, span_id
+                    """,
+                    (run_id,),
+                ).fetchall()
+        origin = ensure_utc(datetime.fromisoformat(run["started_at"]))
+        events: list[dict[str, Any]] = []
+        for row in rows:
+            if row["status"] != "error" and row["outcome"] != "failure":
+                continue
+            start_offset_ms = _offset_ms(
+                origin, datetime.fromisoformat(row["start_time"])
+            )
+            end_offset_ms = _offset_ms(origin, datetime.fromisoformat(row["end_time"]))
+            events.append(
+                {
+                    "span_id": row["span_id"],
+                    "sequence": row["sequence_index"],
+                    "name": row["name"],
+                    "kind": row["kind"],
+                    "status": row["status"],
+                    "start_offset_ms": round(start_offset_ms, 3),
+                    "end_offset_ms": round(end_offset_ms, 3),
+                    "duration_ms": row["duration_ms"],
+                    "error": _error_message(row),
+                }
+            )
+        return {
+            "run_id": run_id,
+            "started_at": run["started_at"],
+            "ended_at": run["ended_at"],
+            "duration_ms": run["duration_ms"],
+            "error_count": len(events),
+            "events": events,
+        }
+
     def update_annotations(
         self,
         run_id: str,
@@ -1123,6 +1178,30 @@ def _retention_cutoff(older_than_days: int) -> datetime:
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _offset_ms(origin: datetime, instant: datetime) -> float:
+    """Return the millisecond offset of one instant after a run start.
+
+    A span that starts before the recorded run start clamps to zero,
+    because a negative offset would draw a marker off the time axis.
+    """
+
+    return max((ensure_utc(instant) - ensure_utc(origin)).total_seconds() * 1000, 0.0)
+
+
+def _error_message(row: sqlite3.Row) -> str:
+    """Return a stable failure message for one failed span.
+
+    A tool call carries its recorded error. Every other failed span uses
+    a generated message, so the timeline always has text to show.
+    """
+
+    if row["error"]:
+        return row["error"]
+    if row["outcome"] == "failure":
+        return f"{row['name']} reported a failure outcome"
+    return f"{row['name']} ended with status error"
 
 
 def _retention_ids(

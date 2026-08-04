@@ -91,6 +91,19 @@ _DAY_RUNS_HEADERS = [
     "label",
 ]
 
+_TIMELINE_HEADERS = [
+    "run_id",
+    "span_id",
+    "sequence",
+    "name",
+    "kind",
+    "status",
+    "start_offset_ms",
+    "end_offset_ms",
+    "duration_ms",
+    "error",
+]
+
 _SECTION_TOTAL = "total"
 _SECTION_SOURCE = "source"
 _SECTION_AGENT = "agent"
@@ -336,6 +349,38 @@ def status_trend_to_csv(
                     }
                 )
         return _to_csv(_STATUS_TREND_HEADERS, rows)
+
+
+def error_timeline_to_csv(timeline: dict[str, Any]) -> str:
+    """Render the error timeline of one run as a CSV document.
+
+    The document lists one row per failed span in recorded order. The
+    run_id cell repeats the target run, and the offsets keep their
+    millisecond precision so a spreadsheet can plot the markers.
+    """
+
+    run_id = timeline.get("run_id", "")
+    events = timeline.get("events", [])
+    with traced_operation(
+        "export.timeline_csv", {"run.id": run_id, "timeline.events": len(events)}
+    ):
+        rows: list[dict[str, Any]] = []
+        for event in events:
+            rows.append(
+                {
+                    "run_id": run_id,
+                    "span_id": event.get("span_id", ""),
+                    "sequence": _number(event.get("sequence")),
+                    "name": event.get("name", ""),
+                    "kind": event.get("kind", ""),
+                    "status": event.get("status", ""),
+                    "start_offset_ms": _number(event.get("start_offset_ms")),
+                    "end_offset_ms": _number(event.get("end_offset_ms")),
+                    "duration_ms": _number(event.get("duration_ms")),
+                    "error": event.get("error") or "",
+                }
+            )
+        return _to_csv(_TIMELINE_HEADERS, rows)
 
 
 def day_runs_to_csv(day: str, runs: list[dict[str, Any]], agent_name: str = "") -> str:

@@ -15,6 +15,7 @@ from .compare import compare_runs
 from .export import (
     comparison_to_csv,
     day_runs_to_csv,
+    error_timeline_to_csv,
     report_to_csv,
     run_tools_to_csv,
     status_trend_to_csv,
@@ -88,6 +89,17 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[policy.value for policy in ReplayPolicy],
         default=None,
         help="Override the side-effect policy",
+    )
+
+    timeline = subparsers.add_parser(
+        "timeline", help="Show the error timeline of one run"
+    )
+    timeline.add_argument("run_id")
+    timeline.add_argument(
+        "--format",
+        choices=["json", "csv"],
+        default="json",
+        help="Output format",
     )
 
     compare = subparsers.add_parser("compare", help="Compare two recorded runs")
@@ -379,6 +391,14 @@ def main() -> None:
             print(comparison_to_csv(report), end="")
         else:
             print(json.dumps(report.as_dict(), indent=2))
+    elif args.command == "timeline":
+        timeline = store.error_timeline(args.run_id)
+        if timeline is None:
+            raise SystemExit(f"Run not found: {args.run_id}")
+        if args.format == "csv":
+            print(error_timeline_to_csv(timeline), end="")
+        else:
+            print(json.dumps(timeline, indent=2))
     elif args.command == "search":
         print(json.dumps(store.search_runs(args.query, args.limit), indent=2))
     elif args.command == "comparisons":
