@@ -26,6 +26,44 @@
     <div class="metric-card"><span class="metric-label">Tool calls</span><strong>{{ run.tool_count }}</strong><span class="metric-note">ordered by sequence</span></div>
     <div class="metric-card"><span class="metric-label">Trace ID</span><strong class="metric-code">{{ run.trace_id }}</strong><span class="metric-note">portable identity</span></div>
 </section>
+<section class="section-block timeline-section" id="error-timeline">
+    <div class="section-heading">
+        <div><div class="eyebrow">ERROR TIMELINE</div><h2>When did this run fail?</h2></div>
+        <span class="section-meta">{% if timeline and timeline.error_count %}{{ timeline.error_count }} failed span{% if timeline.error_count != 1 %}s{% endif %} · {{ timeline.duration_ms|round(1) }} ms run{% else %}no failed spans{% endif %}</span>
+    </div>
+    {% if timeline and timeline.has_errors %}
+    <div class="panel timeline-panel">
+        <div class="timeline-chart" role="img" aria-label="Failed spans positioned on the run time axis">
+            <svg viewBox="0 0 {{ timeline.width }} {{ timeline.height }}" preserveAspectRatio="none" class="timeline-svg">
+                <line x1="16" y1="{{ timeline.height - 18 }}" x2="{{ timeline.width - 16 }}" y2="{{ timeline.height - 18 }}" class="timeline-axis"></line>
+                {% for event in timeline.events %}
+                <g class="timeline-event">
+                    <line x1="{{ event.x }}" y1="{{ timeline.height - 18 }}" x2="{{ event.x }}" y2="14" class="timeline-stem"></line>
+                    <circle cx="{{ event.x }}" cy="14" r="4.5" class="timeline-dot"></circle>
+                    <title>{{ event.name }} · {{ event.error }}</title>
+                </g>
+                {% endfor %}
+            </svg>
+            <div class="timeline-scale"><span class="mono">0 ms</span><span class="mono">{{ timeline.duration_ms|round(1) }} ms</span></div>
+        </div>
+        <div class="timeline-foot">
+            <a class="button button-quiet" href="{{ timeline_csv_link }}">CSV <span aria-hidden="true">&#8594;</span></a>
+            <a class="button button-quiet" href="/api/runs/{{ run.run_id }}/timeline">JSON <span aria-hidden="true">&#8594;</span></a>
+        </div>
+    </div>
+    <div class="timeline-list">
+        {% for event in timeline.events %}
+        <a class="timeline-row" href="/runs/{{ run.run_id }}#span-{{ event.span_id }}">
+            <span class="timeline-marker"></span>
+            <span><strong>{{ event.name }}</strong><small>{{ event.kind }} · {{ event.start_offset_ms|round(1) }} ms in</small></span>
+            <span class="timeline-error">{{ event.error }}</span>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state"><span class="empty-mark">&#10003;</span><h3>No failed spans</h3><p>This run recorded no error spans, so the timeline stays empty.</p></div>
+    {% endif %}
+</section>
 <section class="panel annotation-panel">
     <div class="panel-heading">
         <div><div class="eyebrow">REVIEW ANNOTATIONS</div><h2>Label and notes</h2></div>
@@ -56,7 +94,7 @@
     {% if run.spans %}
     <div class="trace-list">
         {% for span in run.spans %}
-        <article class="trace-row trace-{{ span.kind }} {% if span.status == 'error' %}trace-error{% endif %}">
+        <article id="span-{{ span.span_id }}" class="trace-row trace-{{ span.kind }} {% if span.status == 'error' %}trace-error{% endif %}">
             <div class="trace-rail"><span class="trace-marker"></span>{% if not loop.last %}<span class="trace-connector"></span>{% endif %}</div>
             <div class="trace-main">
                 <div class="trace-title-row"><div><span class="trace-kind">{{ span.kind }}</span><h3>{{ span.name }}</h3></div><span class="trace-time">{{ span.duration_ms|round(1) }} ms</span></div>
