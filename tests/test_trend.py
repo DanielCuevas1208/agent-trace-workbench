@@ -504,3 +504,236 @@ def test_cli_trend_day_rejects_bad_format(tmp_path, monkeypatch, capsys):
     )
     with pytest.raises(SystemExit, match="YYYY-MM-DD"):
         main()
+
+
+def test_status_trend_counts_runs_by_status(tmp_path, baseline, candidate):
+    store = TraceStore(tmp_path / "trend.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, candidate.run_id, 2)
+
+    breakdown = store.status_trend(7)
+
+    assert len(breakdown) == 7
+    bucket = _bucket(breakdown, 2)
+    assert bucket["runs"] == 2
+    assert bucket["statuses"] == {"ok": 1, "error": 1}
+
+
+def test_status_trend_keeps_empty_days_in_window(tmp_path, baseline):
+    store = TraceStore(tmp_path / "trend.db")
+    store.ingest(baseline, "baseline.json")
+    _set_started(store, baseline.run_id, 5)
+
+    breakdown = store.status_trend(7)
+
+    empty = _bucket(breakdown, 1)
+    assert empty["runs"] == 0
+    assert empty["statuses"] == {}
+
+
+def test_status_trend_spreads_across_days(tmp_path, baseline, candidate):
+    store = TraceStore(tmp_path / "trend.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+    _set_started(store, baseline.run_id, 3)
+    _set_started(store, candidate.run_id, 1)
+
+    breakdown = store.status_trend(7)
+
+    assert _bucket(breakdown, 3)["statuses"] == {"ok": 1}
+    assert _bucket(breakdown, 1)["statuses"] == {"error": 1}
+    assert _bucket(breakdown, 2)["runs"] == 0
+
+
+def test_status_trend_filters_by_agent(tmp_path, baseline, candidate, support):
+    store = TraceStore(tmp_path / "trend.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+    store.ingest(support, "support.json")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, candidate.run_id, 2)
+    _set_started(store, support.run_id, 2)
+
+    catalog = store.status_trend(7, agent_name="catalog-assistant")
+    support_trend = store.status_trend(7, agent_name="support-assistant")
+
+    assert _bucket(catalog, 2)["statuses"] == {"ok": 1, "error": 1}
+    assert _bucket(support_trend, 2)["statuses"] == {"ok": 1}
+
+
+def test_status_trend_rejects_zero_days(tmp_path, baseline):
+    store = TraceStore(tmp_path / "trend.db")
+    store.ingest(baseline, "baseline.json")
+
+    with pytest.raises(ValueError, match="days"):
+        store.status_trend(0)
+
+
+def test_status_trend_caps_large_windows(tmp_path, baseline):
+    store = TraceStore(tmp_path / "trend.db")
+    store.ingest(baseline, "baseline.json")
+
+    breakdown = store.status_trend(500)
+
+    assert len(breakdown) == 90
+
+
+def test_status_trend_unknown_agent_returns_empty_buckets(tmp_path, baseline):
+    store = TraceStore(tmp_path / "trend.db")
+    store.ingest(baseline, "baseline.json")
+    _set_started(store, baseline.run_id, 2)
+
+    breakdown = store.status_trend(7, agent_name="ghost-agent")
+
+    assert len(breakdown) == 7
+    assert all(bucket["statuses"] == {} for bucket in breakdown)
+
+
+def test_api_status_trend_returns_buckets(tmp_path, baseline, candidate):
+    client = TestClient(create_app(tmp_path / "api.db"))
+    client.post("/api/traces", json=baseline.as_jsonable())
+    client.post("/api/traces", json=candidate.as_jsonable())
+    store = TraceStore(tmp_path / "api.db")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, candidate.run_id, 2)
+
+    buckets = client.get("/api/trend/statuses", params={"days": 7}).json()
+
+    assert len(buckets) == 7
+    assert _bucket(buckets, 2)["statuses"] == {"ok": 1, "error": 1}
+
+
+def test_api_status_trend_filters_by_agent(tmp_path, baseline, candidate, support):
+    client = TestClient(create_app(tmp_path / "api.db"))
+    client.post("/api/traces", json=baseline.as_jsonable())
+    client.post("/api/traces", json=candidate.as_jsonable())
+    client.post("/api/traces", json=support.as_jsonable())
+    store = TraceStore(tmp_path / "api.db")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, candidate.run_id, 2)
+    _set_started(store, support.run_id, 2)
+
+    buckets = client.get(
+        "/api/trend/statuses", params={"days": 7, "agent": "support-assistant"}
+    ).json()
+
+    assert _bucket(buckets, 2)["statuses"] == {"ok": 1}
+
+
+def test_api_status_trend_csv_returns_attachment(tmp_path, baseline, candidate):
+    client = TestClient(create_app(tmp_path / "api.db"))
+    client.post("/api/traces", json=baseline.as_jsonable())
+    client.post("/api/traces", json=candidate.as_jsonable())
+    store = TraceStore(tmp_path / "api.db")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, candidate.run_id, 2)
+
+    response = client.get(
+        "/api/trend/statuses", params={"days": 7, "format": "csv"}
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="status-trend.csv"'
+    )
+    assert response.text.splitlines()[0] == "day,agent_name,status,runs"
+
+
+def test_api_status_trend_rejects_unknown_format(tmp_path):
+    client = TestClient(create_app(tmp_path / "api.db"))
+
+    assert (
+        client.get("/api/trend/statuses", params={"format": "xml"}).status_code == 400
+    )
+
+
+def test_cli_status_trend_prints_buckets(tmp_path, baseline, candidate, monkeypatch, capsys):
+    store = TraceStore(tmp_path / "cli.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, candidate.run_id, 2)
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["atw", "--db", str(tmp_path / "cli.db"), "trend", "--statuses", "--days", "7"],
+    )
+    main()
+
+    buckets = json.loads(capsys.readouterr().out)
+    assert _bucket(buckets, 2)["statuses"] == {"ok": 1, "error": 1}
+
+
+def test_cli_status_trend_prints_csv(tmp_path, baseline, candidate, monkeypatch, capsys):
+    store = TraceStore(tmp_path / "cli.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, candidate.run_id, 2)
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "atw",
+            "--db",
+            str(tmp_path / "cli.db"),
+            "trend",
+            "--statuses",
+            "--days",
+            "7",
+            "--format",
+            "csv",
+        ],
+    )
+    main()
+
+    out = capsys.readouterr().out
+    assert out.splitlines()[0] == "day,agent_name,status,runs"
+
+
+def test_dashboard_shows_status_breakdown(tmp_path, baseline, candidate):
+    client = TestClient(create_app(tmp_path / "api.db"))
+    client.post("/api/traces", json=baseline.as_jsonable())
+    client.post("/api/traces", json=candidate.as_jsonable())
+    store = TraceStore(tmp_path / "api.db")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, candidate.run_id, 2)
+
+    page = client.get("/").text
+
+    assert "STATUS BREAKDOWN" in page
+    assert "What shapes each day?" in page
+    assert "status-svg" in page
+    assert "bar-error" in page
+    assert "legend-item" in page
+    assert "/api/trend/statuses?format=csv" in page
+
+
+def test_dashboard_status_breakdown_respects_agent_filter(
+    tmp_path, baseline, candidate, support
+):
+    client = TestClient(create_app(tmp_path / "api.db"))
+    client.post("/api/traces", json=baseline.as_jsonable())
+    client.post("/api/traces", json=candidate.as_jsonable())
+    client.post("/api/traces", json=support.as_jsonable())
+    store = TraceStore(tmp_path / "api.db")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, candidate.run_id, 2)
+    _set_started(store, support.run_id, 2)
+
+    page = client.get("/", params={"agent": "support-assistant"}).text
+
+    assert "STATUS BREAKDOWN" in page
+    assert "/api/trend/statuses?agent=support-assistant&amp;format=csv" in page
+
+
+def test_dashboard_status_breakdown_empty_state(tmp_path):
+    client = TestClient(create_app(tmp_path / "api.db"))
+
+    page = client.get("/").text
+
+    assert "No runs in this window" in page
+    assert "status-svg" not in page

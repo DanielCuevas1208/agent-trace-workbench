@@ -69,6 +69,8 @@ _REPORT_HEADERS = [
 
 _TREND_HEADERS = ["day", "agent_name", "runs", "failures", "failure_rate"]
 
+_STATUS_TREND_HEADERS = ["day", "agent_name", "status", "runs"]
+
 _DAY_RUNS_HEADERS = [
     "day",
     "run_id",
@@ -262,6 +264,34 @@ def trend_to_csv(trend: list[dict[str, Any]], agent_name: str = "") -> str:
                 }
             )
         return _to_csv(_TREND_HEADERS, rows)
+
+
+def status_trend_to_csv(
+    trend: list[dict[str, Any]], agent_name: str = ""
+) -> str:
+    """Render a daily run status breakdown as a CSV document.
+
+    The document lists one row per status present on a day. The
+    agent_name cell repeats the active filter, so a filtered file stays
+    self-describing. Empty days produce no rows, because they carry no
+    status counts.
+    """
+
+    with traced_operation(
+        "export.status_trend_csv", {"trend.days": len(trend), "trend.agent": agent_name}
+    ):
+        rows: list[dict[str, Any]] = []
+        for bucket in trend:
+            for status, count in sorted(bucket["statuses"].items()):
+                rows.append(
+                    {
+                        "day": bucket["day"],
+                        "agent_name": agent_name,
+                        "status": status,
+                        "runs": count,
+                    }
+                )
+        return _to_csv(_STATUS_TREND_HEADERS, rows)
 
 
 def day_runs_to_csv(day: str, runs: list[dict[str, Any]], agent_name: str = "") -> str:

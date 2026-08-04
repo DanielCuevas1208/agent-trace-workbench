@@ -4,6 +4,26 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.7.0 - 2026-08-04
+
+### Added
+
+- A status breakdown beside the daily failure line on the dashboard.
+- A stacked bar per trend day that shows the run status counts.
+- A status legend with window totals for each recorded run status.
+- `GET /api/trend/statuses` route that returns the daily status counts.
+- `GET /api/trend/statuses?format=csv` route that returns the counts as a CSV attachment.
+- `atw trend --statuses` command that prints the daily status counts.
+- `atw trend --statuses --format csv` command that prints the counts as CSV.
+- The dashboard status panel keeps the active agent and window in its export links.
+- Deterministic tests for the status trend, the API routes, the CLI options, the CSV export, and the dashboard panel.
+
+### Changed
+
+- Version numbers moved to 1.7.0.
+- The dashboard trend section now shows the status composition of each day.
+- The architecture now includes a status breakdown beside the failure trend.
+
 ## 1.6.0 - 2026-08-04
 
 ### Added

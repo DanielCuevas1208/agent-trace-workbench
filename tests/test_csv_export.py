@@ -14,6 +14,7 @@ from agent_trace_workbench.export import (
     day_runs_to_csv,
     report_to_csv,
     run_tools_to_csv,
+    status_trend_to_csv,
     trend_to_csv,
 )
 from agent_trace_workbench.main import create_app
@@ -316,6 +317,50 @@ def test_api_trend_csv_carries_agent_filter(tmp_path, baseline, support):
     assert response.status_code == 200
     rows = _read_csv(response.text)
     assert all(row["agent_name"] == "support-assistant" for row in rows)
+
+
+def test_status_trend_csv_lists_one_row_per_status(tmp_path, baseline, candidate):
+    store = TraceStore(tmp_path / "api.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, candidate.run_id, 2)
+
+    rows = _read_csv(status_trend_to_csv(store.status_trend(7)))
+
+    assert list(rows[0])[0] == "day"
+    active = [row for row in rows if row["day"] == _day(2)]
+    assert {row["status"]: row["runs"] for row in active} == {"ok": "1", "error": "1"}
+    assert active[0]["agent_name"] == ""
+
+
+def test_status_trend_csv_repeats_the_active_agent(tmp_path, baseline, candidate):
+    store = TraceStore(tmp_path / "api.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, candidate.run_id, 2)
+
+    rows = _read_csv(
+        status_trend_to_csv(
+            store.status_trend(7, agent_name="catalog-assistant"), "catalog-assistant"
+        )
+    )
+
+    assert rows
+    assert all(row["agent_name"] == "catalog-assistant" for row in rows)
+
+
+def test_status_trend_csv_omits_empty_days(tmp_path, baseline):
+    store = TraceStore(tmp_path / "api.db")
+    store.ingest(baseline, "baseline.json")
+    _set_started(store, baseline.run_id, 5)
+
+    rows = _read_csv(status_trend_to_csv(store.status_trend(7)))
+
+    assert len(rows) == 1
+    assert rows[0]["status"] == "ok"
+    assert rows[0]["runs"] == "1"
 
 
 def test_cli_trend_prints_json_buckets(tmp_path, baseline, candidate, monkeypatch, capsys):
