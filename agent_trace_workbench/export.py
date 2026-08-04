@@ -85,6 +85,8 @@ _DAY_RUNS_HEADERS = [
     "run_id",
     "agent_name",
     "status",
+    "error_count",
+    "error_summary",
     "tool_count",
     "duration_ms",
     "source_dir",
@@ -402,6 +404,11 @@ def day_runs_to_csv(day: str, runs: list[dict[str, Any]], agent_name: str = "") 
                     "run_id": run.get("run_id", ""),
                     "agent_name": run.get("agent_name", ""),
                     "status": run.get("status", ""),
+                    "error_count": len(run.get("error_summary", [])),
+                    "error_summary": "; ".join(
+                        item.get("message", "")
+                        for item in run.get("error_summary", [])
+                    ),
                     "tool_count": _number(run.get("tool_count")),
                     "duration_ms": _number(run.get("duration_ms")),
                     "source_dir": run.get("source_dir", ""),

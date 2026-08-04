@@ -302,6 +302,27 @@ def test_runs_on_day_lists_runs_for_one_day(tmp_path, baseline, candidate):
     assert day_runs[0]["status"] == "ok"
 
 
+def test_runs_on_day_includes_ordered_error_summary(tmp_path, candidate):
+    store = TraceStore(tmp_path / "trend.db")
+    store.ingest(candidate, "candidate.json")
+    _set_started(store, candidate.run_id, 2)
+
+    error_summary = store.runs_on_day(_day(2))[0]["error_summary"]
+
+    assert [item["span_id"] for item in error_summary] == [
+        "span-agent-101",
+        "span-tool-103",
+    ]
+    assert [item["name"] for item in error_summary] == [
+        "agent.run",
+        "reserve_inventory",
+    ]
+    assert [item["message"] for item in error_summary] == [
+        "agent.run ended with status error",
+        "reservation window expired",
+    ]
+
+
 def test_runs_on_day_sorts_newest_first(tmp_path, baseline, candidate):
     store = TraceStore(tmp_path / "trend.db")
     store.ingest(baseline, "baseline.json")
@@ -356,6 +377,18 @@ def test_api_trend_day_returns_runs(tmp_path, baseline, candidate):
     assert body["day"] == _day(2)
     assert body["agent"] == ""
     assert [run["run_id"] for run in body["runs"]] == [baseline.run_id]
+    assert body["runs"][0]["error_summary"] == []
+
+
+def test_api_trend_day_returns_error_summary(tmp_path, candidate):
+    client = TestClient(create_app(tmp_path / "api.db"))
+    client.post("/api/traces", json=candidate.as_jsonable())
+    store = TraceStore(tmp_path / "api.db")
+    _set_started(store, candidate.run_id, 2)
+
+    body = client.get(f"/api/trend/{_day(2)}").json()
+
+    assert body["runs"][0]["error_summary"][1]["message"] == "reservation window expired"
 
 
 def test_api_trend_day_filters_by_agent(tmp_path, baseline, candidate, support):
@@ -398,7 +431,10 @@ def test_api_trend_day_csv_returns_attachment(tmp_path, baseline, candidate):
     )
     assert (
         response.text.splitlines()[0]
-        == "day,run_id,agent_name,status,tool_count,duration_ms,source_dir,label"
+        == (
+            "day,run_id,agent_name,status,error_count,error_summary,"
+            "tool_count,duration_ms,source_dir,label"
+        )
     )
 
 
@@ -442,6 +478,9 @@ def test_dashboard_day_drill_down_lists_runs(tmp_path, baseline, candidate):
     assert "DAY DRILL-DOWN" in page
     assert f"Runs on {_day(2)}" in page
     assert baseline.run_id in page
+    assert "2 failed spans" in page
+    assert "agent.run ended with status error" in page
+    assert "+ 1 more" in page
     assert f"/api/trend/{_day(2)}?" in page
 
 
@@ -495,6 +534,21 @@ def test_cli_trend_day_lists_runs(tmp_path, baseline, candidate, monkeypatch, ca
     body = json.loads(capsys.readouterr().out)
     assert body["day"] == _day(2)
     assert [run["run_id"] for run in body["runs"]] == [baseline.run_id]
+
+
+def test_cli_trend_day_includes_error_summary(tmp_path, candidate, monkeypatch, capsys):
+    store = TraceStore(tmp_path / "cli.db")
+    store.ingest(candidate, "candidate.json")
+    _set_started(store, candidate.run_id, 2)
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["atw", "--db", str(tmp_path / "cli.db"), "trend", "--day", _day(2)],
+    )
+    main()
+
+    body = json.loads(capsys.readouterr().out)
+    assert body["runs"][0]["error_summary"][0]["name"] == "agent.run"
 
 
 def test_cli_trend_day_rejects_bad_format(tmp_path, monkeypatch, capsys):

@@ -471,6 +471,9 @@ def test_day_runs_csv_renders_one_row_per_run(tmp_path, baseline, candidate):
     assert {row["run_id"] for row in rows} == {baseline.run_id, candidate.run_id}
     assert {row["status"] for row in rows} == {"ok", "error"}
     assert {row["tool_count"] for row in rows} == {"2", "3"}
+    candidate_row = next(row for row in rows if row["run_id"] == candidate.run_id)
+    assert candidate_row["error_count"] == "2"
+    assert "reservation window expired" in candidate_row["error_summary"]
 
 
 def test_day_runs_csv_carries_agent_filter(tmp_path, baseline, support):
