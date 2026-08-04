@@ -9,6 +9,8 @@ The store also keeps local review annotations beside each run. A label
 and a note stay in the runs table. They survive re-ingestion and never
 enter the portable trace contract. Each run keeps the folder that
 produced it, so the report layer can group evidence by source directory.
+A retention cutoff reuses the same table: a prune deletes runs last
+ingested before a cutoff, and a label protects a run from that cleanup.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 from uuid import uuid4
@@ -269,6 +272,126 @@ class TraceStore:
                     "SELECT run_id FROM runs ORDER BY started_at DESC, run_id DESC"
                 ).fetchall()
                 return [row["run_id"] for row in rows]
+
+    def retention_candidates(
+        self,
+        cutoff: datetime,
+        *,
+        keep_labeled: bool = True,
+        run_ids: list[str] | None = None,
+    ) -> list[str]:
+        """Return run IDs eligible for age-based cleanup.
+
+        A run becomes eligible when its last ingestion happened before
+        the cutoff. Labeled runs stay protected by default, because a
+        label marks evidence worth keeping. Pass run_ids to restrict
+        the scan to specific runs.
+        """
+
+        with traced_operation("storage.retention_candidates", {"db.path": self.db_path.name}):
+            with self._connect() as connection:
+                return _retention_ids(
+                    connection, cutoff, keep_labeled=keep_labeled, run_ids=run_ids
+                )
+
+    def protected_runs(
+        self,
+        cutoff: datetime,
+        *,
+        run_ids: list[str] | None = None,
+    ) -> list[str]:
+        """Return labeled runs that age-based cleanup would skip.
+
+        A label is the per-run retention marker. This method lists the
+        labeled runs older than the cutoff, so the cleanup page can show
+        why some evidence stays.
+        """
+
+        with traced_operation("storage.protected_runs", {"db.path": self.db_path.name}):
+            with self._connect() as connection:
+                query = "SELECT run_id FROM runs WHERE ingested_at < ? AND label != ''"
+                params: list[Any] = [_ingested_cutoff(cutoff)]
+                if run_ids:
+                    unique_ids = list(dict.fromkeys(run_ids))
+                    query += f" AND run_id IN ({', '.join('?' * len(unique_ids))})"
+                    params.extend(unique_ids)
+                query += " ORDER BY run_id ASC"
+                rows = connection.execute(query, params).fetchall()
+                return [row["run_id"] for row in rows]
+
+    def prune_runs(
+        self,
+        cutoff: datetime,
+        *,
+        keep_labeled: bool = True,
+        run_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Delete runs last ingested before the cutoff and return counts.
+
+        The delete cascades to spans and saved comparisons through the
+        schema. Labeled runs stay protected unless keep_labeled is
+        False. Call retention_candidates first to preview the set.
+        """
+
+        with traced_operation("storage.prune_runs", {"db.path": self.db_path.name}):
+
+            def _prune() -> dict[str, Any]:
+                with self._connect() as connection:
+                    target_ids = _retention_ids(
+                        connection,
+                        cutoff,
+                        keep_labeled=keep_labeled,
+                        run_ids=run_ids,
+                    )
+                    if not target_ids:
+                        return {
+                            "candidates": [],
+                            "deleted_runs": 0,
+                            "deleted_spans": 0,
+                            "deleted_comparisons": 0,
+                        }
+                    placeholders = ", ".join("?" * len(target_ids))
+                    span_count = connection.execute(
+                        f"SELECT COUNT(*) FROM spans WHERE run_id IN ({placeholders})",
+                        target_ids,
+                    ).fetchone()[0]
+                    comparison_count = connection.execute(
+                        f"SELECT COUNT(*) FROM comparisons "
+                        f"WHERE run_a IN ({placeholders}) OR run_b IN ({placeholders})",
+                        target_ids + target_ids,
+                    ).fetchone()[0]
+                    cursor = connection.execute(
+                        f"DELETE FROM runs WHERE run_id IN ({placeholders})",
+                        target_ids,
+                    )
+                    return {
+                        "candidates": target_ids,
+                        "deleted_runs": cursor.rowcount,
+                        "deleted_spans": span_count,
+                        "deleted_comparisons": comparison_count,
+                    }
+
+            return _retry_on_lock(_prune)
+
+    def runs_by_ids(self, run_ids: list[str]) -> list[dict[str, Any]]:
+        """Return run summaries for the given IDs in input order.
+
+        Missing IDs are skipped. The method keeps the input order so the
+        cleanup page can list candidates in the same order as the scan.
+        """
+
+        unique_ids = list(dict.fromkeys(run_ids))
+        if not unique_ids:
+            return []
+        with traced_operation("storage.runs_by_ids", {"run.count": len(unique_ids)}):
+            with self._connect() as connection:
+                placeholders = ", ".join("?" * len(unique_ids))
+                rows = connection.execute(
+                    f"SELECT * FROM runs WHERE run_id IN ({placeholders})", unique_ids
+                ).fetchall()
+                summaries = _summarize_runs(connection, rows)
+            summary_by_id = {item["run_id"]: item for item in summaries}
+            return [summary_by_id[run_id] for run_id in unique_ids if run_id in summary_by_id]
 
     def search_runs(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
         """Return run summaries matching a text query across runs and spans."""
@@ -645,6 +768,41 @@ def _retry_on_lock(operation: Callable[[], _T], *, attempts: int = 3) -> _T:
 
 def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _ingested_cutoff(cutoff: datetime) -> str:
+    """Format a cutoff to match the store's ingested_at column.
+
+    The column stores UTC timestamps in SQLite default format, so a
+    plain string comparison stays chronological. A naive cutoff counts
+    as UTC.
+    """
+
+    if cutoff.tzinfo is None:
+        cutoff = cutoff.replace(tzinfo=timezone.utc)
+    return cutoff.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _retention_ids(
+    connection: sqlite3.Connection,
+    cutoff: datetime,
+    *,
+    keep_labeled: bool,
+    run_ids: list[str] | None,
+) -> list[str]:
+    """Return runs last ingested before the cutoff for one connection."""
+
+    query = "SELECT run_id FROM runs WHERE ingested_at < ?"
+    params: list[Any] = [_ingested_cutoff(cutoff)]
+    if keep_labeled:
+        query += " AND label = ''"
+    if run_ids:
+        unique_ids = list(dict.fromkeys(run_ids))
+        query += f" AND run_id IN ({', '.join('?' * len(unique_ids))})"
+        params.extend(unique_ids)
+    query += " ORDER BY run_id ASC"
+    rows = connection.execute(query, params).fetchall()
+    return [row["run_id"] for row in rows]
 
 
 def _escape_like(value: str) -> str:

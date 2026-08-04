@@ -4,6 +4,27 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.2.0 - 2026-08-03
+
+### Added
+
+- Per-run retention and cleanup of old evidence.
+- `atw prune` command that deletes runs last ingested before a cutoff.
+- `atw prune --dry-run` command that previews candidates without deleting.
+- `POST /api/prune` route that prunes runs or previews them with `dry_run`.
+- A Cleanup page that previews old runs and applies a retention policy.
+- A label now protects a run from age-based cleanup. Set `--no-keep-labeled` to include labeled runs.
+- `--run-id` option on `atw prune` to target specific runs.
+- Deterministic tests for retention, pruning, the CLI command, and the API route.
+
+### Changed
+
+- Version numbers moved to 1.2.0.
+- The lockfile moved from `requirements.lock` to `requirements-lock.txt`.
+- The pip ecosystem can now evaluate the lockfile, so Dependabot no longer reports a dependency file error.
+- CI installs from `requirements-lock.txt` and uses it as the pip cache key.
+- The architecture now includes a retention layer beside the review list.
+
 ## 1.1.0 - 2026-08-03
 
 ### Added

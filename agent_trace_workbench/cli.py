@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .collector import export_run_to_collector
@@ -140,6 +141,36 @@ def build_parser() -> argparse.ArgumentParser:
     watch.add_argument("--pattern", default="*.json")
     watch.add_argument("--interval", type=float, default=2.0, dest="interval_seconds")
     watch.add_argument("--once", action="store_true", help="Scan once and exit")
+
+    prune = subparsers.add_parser(
+        "prune", help="Delete runs last ingested before a retention cutoff"
+    )
+    prune.add_argument(
+        "--older-than",
+        type=int,
+        default=30,
+        dest="older_than_days",
+        help="Delete runs older than this many days (default: 30)",
+    )
+    prune.add_argument(
+        "--keep-labeled",
+        dest="keep_labeled",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Keep runs that carry a label (default: on)",
+    )
+    prune.add_argument(
+        "--run-id",
+        action="append",
+        dest="run_ids",
+        default=None,
+        help="Restrict cleanup to one run; repeat for several runs",
+    )
+    prune.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview the candidate runs without deleting them",
+    )
     return parser
 
 
@@ -299,6 +330,77 @@ def main() -> None:
     elif args.command == "watch":
         watcher = DirectoryWatcher(store, args.directory, args.pattern)
         watch_directory(watcher, args.interval_seconds, args.once)
+    elif args.command == "prune":
+        if args.older_than_days < 1:
+            raise SystemExit("--older-than must be at least 1 day")
+        cutoff = datetime.now(timezone.utc) - timedelta(days=args.older_than_days)
+        protected = (
+            store.protected_runs(cutoff, run_ids=args.run_ids)
+            if args.keep_labeled
+            else []
+        )
+        if args.dry_run:
+            candidates = store.retention_candidates(
+                cutoff, keep_labeled=args.keep_labeled, run_ids=args.run_ids
+            )
+            print(
+                json.dumps(
+                    _prune_result(
+                        args,
+                        cutoff,
+                        protected,
+                        dry_run=True,
+                        run_ids=candidates,
+                        deleted_runs=0,
+                        deleted_spans=0,
+                        deleted_comparisons=0,
+                    ),
+                    indent=2,
+                )
+            )
+        else:
+            result = store.prune_runs(
+                cutoff, keep_labeled=args.keep_labeled, run_ids=args.run_ids
+            )
+            print(
+                json.dumps(
+                    _prune_result(
+                        args,
+                        cutoff,
+                        protected,
+                        dry_run=False,
+                        run_ids=result["candidates"],
+                        deleted_runs=result["deleted_runs"],
+                        deleted_spans=result["deleted_spans"],
+                        deleted_comparisons=result["deleted_comparisons"],
+                    ),
+                    indent=2,
+                )
+            )
+
+
+def _prune_result(
+    args: argparse.Namespace,
+    cutoff: datetime,
+    protected: list[str],
+    *,
+    dry_run: bool,
+    run_ids: list[str],
+    deleted_runs: int,
+    deleted_spans: int,
+    deleted_comparisons: int,
+) -> dict[str, object]:
+    return {
+        "older_than_days": args.older_than_days,
+        "cutoff": cutoff.isoformat(),
+        "keep_labeled": args.keep_labeled,
+        "dry_run": dry_run,
+        "protected_runs": len(protected),
+        "deleted_runs": deleted_runs,
+        "deleted_spans": deleted_spans,
+        "deleted_comparisons": deleted_comparisons,
+        "run_ids": run_ids,
+    }
 
 
 def _run_summary(run: dict[str, object]) -> dict[str, object]:

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Cleanup | Agent Trace Workbench{% endblock %}
+{% block content %}
+<section class="detail-hero cleanup-hero">
+    <div>
+        <div class="eyebrow">RETENTION / OLD EVIDENCE</div>
+        <h1>Retire old evidence.</h1>
+        <p class="hero-copy">Delete runs last ingested before a cutoff. A label protects a run. Preview the match, then apply the cleanup.</p>
+    </div>
+    <div class="detail-actions">
+        <a class="button button-quiet" href="/report">Library report</a>
+        <a class="button button-primary" href="/review">Review queue <span aria-hidden="true">&#8594;</span></a>
+    </div>
+</section>
+<section class="metric-grid metric-grid-four detail-metrics">
+    <div class="metric-card"><span class="metric-label">Recorded runs</span><strong>{{ library.runs }}</strong><span class="metric-note">in the library</span></div>
+    <div class="metric-card {% if candidate_runs %}metric-alert{% endif %}"><span class="metric-label">Old candidates</span><strong>{{ candidate_runs|length }}</strong><span class="metric-note">match this policy</span></div>
+    <div class="metric-card"><span class="metric-label">Protected</span><strong>{{ protected_runs }}</strong><span class="metric-note">kept by label</span></div>
+    <div class="metric-card"><span class="metric-label">Cutoff</span><strong class="metric-code">{{ cutoff.strftime('%Y-%m-%d %H:%M') }}</strong><span class="metric-note">UTC · last ingestion before</span></div>
+</section>
+<section class="section-block cleanup-section">
+    <div class="section-heading"><div><div class="eyebrow">RETENTION POLICY</div><h2>Preview what a prune removes</h2></div><span class="section-meta">dry run first</span></div>
+    <form id="retention-form" class="bulk-label retention-form" method="get" action="/cleanup" aria-label="Set the retention policy">
+        <input type="number" id="older-than-days" name="older_than_days" min="1" max="36500" value="{{ older_than_days }}" aria-label="Days to keep">
+        <select id="keep-labeled-select" name="keep_labeled" aria-label="Label protection">
+            <option value="1" {% if keep_labeled %}selected{% endif %}>Protect labeled runs</option>
+            <option value="0" {% if not keep_labeled %}selected{% endif %}>Include labeled runs</option>
+        </select>
+        <button class="button button-quiet" type="submit">Preview <span aria-hidden="true">&#8594;</span></button>
+    </form>
+    {% if candidate_runs %}
+    <div class="table-wrap"><table><thead><tr><th>Status</th><th>Agent</th><th>Run</th><th>Source</th><th>Ingested</th></tr></thead><tbody>{% for run in candidate_runs %}<tr><td><span class="badge badge-{{ run.status }}">{{ run.status }}</span></td><td>{{ run.agent_name }}</td><td class="mono">{{ run.run_id }}</td><td class="mono">{{ run.source_dir or 'api' }}/{{ run.source_name }}</td><td class="mono">{{ run.ingested_at }} UTC</td></tr>{% endfor %}</tbody></table></div>
+    <form id="prune-form" class="bulk-label retention-form" aria-label="Delete the runs that match this policy">
+        <span class="prune-hint">This deletes every run in the preview table. Saved comparisons for those runs disappear too.</span>
+        <button class="button button-primary" type="submit">Delete these runs <span aria-hidden="true">&#8594;</span></button>
+        <span id="prune-status" class="form-status" role="status"></span>
+    </form>
+    {% else %}
+    <div class="empty-state"><span class="empty-mark">&#10003;</span><h3>Nothing to remove</h3><p>No run was ingested before the cutoff. Lower the cutoff or label runs to keep them.</p></div>
+    {% endif %}
+</section>
+{% endblock %}

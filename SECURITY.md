@@ -32,10 +32,12 @@ OpenTelemetry stays local by default. Do not export local spans unless you contr
 
 Replay runs local handler scripts from your configuration. Review a handler before you run it. The side-effect guard does not inspect handler code.
 
+Pruning deletes runs from the local database. Preview with a dry run before you delete. A label protects a run from age-based cleanup.
+
 ## Supported versions
 
 | Version | Supported |
 | ------- | --------- |
-| 0.9.x   | Yes       |
-| 0.8.x   | No        |
-| 0.7.x   | No        |
+| 1.2.x   | Yes       |
+| 1.1.x   | No        |
+| 1.0.x   | No        |

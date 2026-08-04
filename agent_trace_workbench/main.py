@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from .models import (
     BulkLabelRequest,
     CollectorExportRequest,
     ComparisonCreate,
+    RetentionRequest,
     RunAnnotations,
     TraceDocument,
 )
@@ -42,7 +44,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     configure_telemetry()
     database_path = db_path or os.getenv("ATW_DB_PATH", "data/workbench.db")
     busy_timeout_ms = _env_int("ATW_DB_BUSY_TIMEOUT_MS", 5000)
-    app = FastAPI(title="Agent Trace Workbench", version="1.1.0")
+    app = FastAPI(title="Agent Trace Workbench", version="1.2.0")
     app.state.store = TraceStore(database_path, busy_timeout_ms=busy_timeout_ms)
     app.state.replay_engine = _build_replay_engine()
     app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
@@ -155,6 +157,33 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             },
         )
 
+    @app.get("/cleanup", response_class=HTMLResponse)
+    def cleanup_page(
+        request: Request,
+        older_than_days: int = Query(default=30, ge=1, le=36500),
+        keep_labeled: str = Query(default="1"),
+    ) -> Any:
+        keep = _flag_on(keep_labeled)
+        cutoff = _retention_cutoff(older_than_days)
+        candidates = app.state.store.retention_candidates(
+            cutoff, keep_labeled=keep
+        )
+        protected = app.state.store.protected_runs(cutoff) if keep else []
+        return render_template(
+            request,
+            "cleanup.html",
+            {
+                "older_than_days": older_than_days,
+                "keep_labeled": keep,
+                "cutoff": cutoff,
+                "candidate_runs": app.state.store.runs_by_ids(candidates),
+                "protected_runs": len(protected),
+                "library": app.state.store.library_report()["totals"],
+                "store": app.state.store.store_info(),
+                "telemetry": _telemetry_info(),
+            },
+        )
+
     @app.get("/api/runs")
     def api_runs(
         limit: int = Query(default=20, ge=1, le=100),
@@ -174,6 +203,41 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     def api_bulk_label(payload: BulkLabelRequest) -> dict[str, Any]:
         updated = app.state.store.bulk_set_labels(payload.run_ids, payload.label)
         return {"label": payload.label, "run_ids": payload.run_ids, "updated": updated}
+
+    @app.post("/api/prune")
+    def api_prune(payload: RetentionRequest) -> dict[str, Any]:
+        cutoff = _retention_cutoff(payload.older_than_days)
+        protected = (
+            app.state.store.protected_runs(cutoff, run_ids=payload.run_ids)
+            if payload.keep_labeled
+            else []
+        )
+        if payload.dry_run:
+            candidates = app.state.store.retention_candidates(
+                cutoff,
+                keep_labeled=payload.keep_labeled,
+                run_ids=payload.run_ids,
+            )
+            result: dict[str, Any] = {
+                "candidates": candidates,
+                "deleted_runs": 0,
+                "deleted_spans": 0,
+                "deleted_comparisons": 0,
+            }
+        else:
+            result = app.state.store.prune_runs(
+                cutoff,
+                keep_labeled=payload.keep_labeled,
+                run_ids=payload.run_ids,
+            )
+        return {
+            "older_than_days": payload.older_than_days,
+            "cutoff": cutoff.isoformat(),
+            "keep_labeled": payload.keep_labeled,
+            "dry_run": payload.dry_run,
+            "protected_runs": len(protected),
+            **result,
+        }
 
     @app.get("/api/report", response_model=None)
     def api_report(
@@ -375,6 +439,14 @@ def _fallback_html(name: str, context: dict[str, Any]) -> str:
     if name == "report.html":
         totals = escape(str(context["report"]["totals"]))
         return f"<html><body><h1>Library report</h1><pre>{totals}</pre></body></html>"
+    if name == "cleanup.html":
+        runs = context.get("candidate_runs", [])
+        cards = "".join(
+            f'<li><a href="/runs/{escape(run["run_id"])}">{escape(run["agent_name"])} '
+            f'({escape(run["status"])})</a></li>'
+            for run in runs
+        )
+        return f"<html><body><h1>Retention cleanup</h1><ul>{cards}</ul></body></html>"
     return "<html><body><h1>Compare runs</h1></body></html>"
 
 
@@ -417,6 +489,18 @@ def _env_int(name: str, default: int) -> int:
         return int(value)
     except ValueError:
         raise ValueError(f"{name} must be an integer") from None
+
+
+def _retention_cutoff(days: int) -> datetime:
+    """Return the UTC instant before which a run counts as old."""
+
+    return datetime.now(timezone.utc) - timedelta(days=days)
+
+
+def _flag_on(value: str) -> bool:
+    """Parse a query flag where absence means true."""
+
+    return value.strip().lower() not in ("0", "false", "no", "off", "")
 
 
 def _collector_endpoint(payload: CollectorExportRequest | None) -> str:

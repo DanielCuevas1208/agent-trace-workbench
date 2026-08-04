@@ -12,6 +12,8 @@ Release 1.0 adds a review list and a folder-level library report. Triage runs wi
 
 Release 1.1 adds a CSV export for the library report and bulk label actions on the review list. Download the report as CSV, or label several runs in one action.
 
+Release 1.2 adds per-run retention and cleanup of old evidence. Prune runs last ingested before a cutoff. Preview the match first. A label protects a run from cleanup.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -54,7 +56,7 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 - `models.py` defines the portable trace contract.
 - `handlers.py` loads local handler config and applies side-effect guards.
-- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It also computes the review list, applies bulk labels, and builds the library report.
+- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It also computes the review list, applies bulk labels, builds the library report, and enforces the retention cutoff for cleanup.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
@@ -78,7 +80,7 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-`requirements.txt` pins the application and verification dependencies. `requirements.lock` pins the full resolved tree for reproducible installs.
+`requirements.txt` pins the application and verification dependencies. `requirements-lock.txt` pins the full resolved tree for reproducible installs.
 
 ## Run the sample
 
@@ -776,6 +778,84 @@ curl.exe -o library-report.csv "http://127.0.0.1:8000/api/report?format=csv"
 
 The API returns the file as an attachment. The CSV keeps commas and quotes escaped, so it opens cleanly in any spreadsheet tool.
 
+## Retention and cleanup
+
+Delete runs last ingested before a cutoff. This keeps the local library focused on recent evidence.
+
+The cutoff counts from the last ingestion time. A re-ingest resets the clock.
+
+Preview the match first.
+
+```powershell
+python -m agent_trace_workbench.cli prune --older-than 30 --dry-run
+```
+
+The command prints the candidate runs without deleting them.
+
+```json
+{
+  "older_than_days": 30,
+  "cutoff": "2026-07-04T12:00:00+00:00",
+  "keep_labeled": true,
+  "dry_run": true,
+  "protected_runs": 1,
+  "deleted_runs": 0,
+  "deleted_spans": 0,
+  "deleted_comparisons": 0,
+  "run_ids": [
+    "run-candidate-001"
+  ]
+}
+```
+
+A label protects a run. The default policy keeps labeled runs, because a label marks evidence worth keeping. The report shows how many runs the labels protect.
+
+Apply the cleanup by omitting `--dry-run`.
+
+```powershell
+python -m agent_trace_workbench.cli prune --older-than 30
+```
+
+The command deletes each matching run. The delete removes the run spans too. It also removes any saved comparison that references the run.
+
+```json
+{
+  "older_than_days": 30,
+  "cutoff": "2026-07-04T12:00:00+00:00",
+  "keep_labeled": true,
+  "dry_run": false,
+  "protected_runs": 1,
+  "deleted_runs": 1,
+  "deleted_spans": 4,
+  "deleted_comparisons": 0,
+  "run_ids": [
+    "run-candidate-001"
+  ]
+}
+```
+
+Target specific runs with `--run-id`.
+
+```powershell
+python -m agent_trace_workbench.cli prune --older-than 30 --run-id run-candidate-001
+```
+
+Include labeled runs in the cleanup with `--no-keep-labeled`.
+
+The JSON API accepts the same policy.
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/api/prune `
+  -H "content-type: application/json" `
+  -d "{\"older_than_days\": 30, \"dry_run\": true}"
+```
+
+The response lists the candidate runs. Set `dry_run` to false to delete them.
+
+The Cleanup page shows the same preview. It lists the matching runs and their last ingestion times. The page asks for confirmation before it deletes.
+
+`older_than_days` must be at least one. A label is the only protection a run has. An explicit `--run-id` still obeys that protection.
+
 ## Trace contract
 
 A trace requires `trace_id`, `run_id`, `agent_name`, and `spans`.
@@ -798,7 +878,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, and reports. It covers the CLI, the API, and collector export.
+The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, reports, and retention cleanup. It covers the CLI, the API, and collector export.
 
 Run the checks with these commands.
 
@@ -809,7 +889,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 177 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements.lock` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 203 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -826,6 +906,14 @@ Labels and notes stay local to the workbench database. Portable export files do 
 The review list shows runs with an empty label. A blank label counts as unreviewed.
 
 Bulk labeling sets the label only. It leaves the notes on each run untouched.
+
+Retention counts from the last ingestion time. A re-ingest resets the clock.
+
+A label protects a run from age-based cleanup. Remove the label to make the run eligible again.
+
+A prune deletes the run, its spans, and any saved comparison that references it. Export important runs before a prune.
+
+The cleanup page deletes every run in the preview table. It does not support per-row selection.
 
 The report CSV keeps every section in one file. Spreadsheet users filter rows by the section column.
 
@@ -871,13 +959,14 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 0.9 complete: add run labels and notes for long-lived evidence review.
 - Release 1.0 complete: add a review list for runs without labels and a folder-level summary report.
 - Release 1.1 complete: add a CSV export for the library report and bulk label actions on the review list.
-- Release 1.2: add per-run retention and cleanup of old evidence.
+- Release 1.2 complete: add per-run retention and cleanup of old evidence.
+- Release 1.3: add a scheduled cleanup run and a retention line to the library report.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline and candidate traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, and collector export.
+`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, reports, and retention cleanup.
 
 `static/` and `templates/` contain the presentation layer.
 
@@ -885,4 +974,4 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 
 `data/` is created at runtime and remains ignored by Git.
 
-`requirements.txt` pins the direct dependencies used by local setup and CI. `requirements.lock` pins the full resolved tree for reproducible installs.
+`requirements.txt` pins the direct dependencies used by local setup and CI. `requirements-lock.txt` pins the full resolved tree for reproducible installs.

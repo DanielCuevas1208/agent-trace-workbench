@@ -195,3 +195,30 @@ class BulkLabelRequest(BaseModel):
         if len(self.run_ids) > 100:
             raise ValueError("Label at most 100 runs at once")
         return self
+
+
+class RetentionRequest(BaseModel):
+    """Request body for pruning old runs.
+
+    The workbench deletes runs last ingested before the cutoff. A label
+    marks evidence worth keeping, so labeled runs stay protected by
+    default. Set dry_run to preview the outcome without deleting.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    older_than_days: int = Field(default=30, ge=1, le=36500)
+    keep_labeled: bool = True
+    run_ids: list[str] | None = None
+    dry_run: bool = False
+
+    @model_validator(mode="after")
+    def validate_run_ids(self) -> RetentionRequest:
+        if self.run_ids:
+            stripped = [run_id.strip() for run_id in self.run_ids]
+            if any(not run_id for run_id in stripped):
+                raise ValueError("Run IDs must not be empty")
+            self.run_ids = list(dict.fromkeys(stripped))
+            if len(self.run_ids) > 900:
+                raise ValueError("Prune at most 900 runs at once")
+        return self
