@@ -185,6 +185,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .mono { font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .row-changed td { background: rgba(217,95,79,.035); }
 .row-alert { color: var(--coral); font-weight: 700; }
+.review-evidence { display: flex; min-width: 230px; flex-direction: column; gap: 3px; white-space: normal; }
+.review-evidence strong { color: var(--coral); font: 800 9px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.review-evidence span { overflow: hidden; max-width: 300px; color: var(--navy); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.review-evidence small, .review-clear { color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .review-section { padding-top: 48px; }
 .cleanup-section { padding-top: 48px; }
 .cleanup-section-last { padding-bottom: 88px; }

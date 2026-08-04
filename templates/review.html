@@ -3,29 +3,34 @@
 {% block content %}
 <section class="detail-hero review-hero">
     <div>
-        <div class="eyebrow">REVIEW LIST / UNLABELED EVIDENCE</div>
-        <h1>Give every run a label.</h1>
-        <p class="hero-copy">Runs without a label have not been triaged yet. Open one, note what it showed, and it leaves this list.</p>
+        <div class="eyebrow">REVIEW QUEUE / FAILURE-FIRST</div>
+        <h1>Start with the runs that need answers.</h1>
+        <p class="hero-copy">Failed runs appear first. Each row shows its first failed span. Label a run after you inspect it.</p>
     </div>
     <div class="detail-actions">
-        <a class="button button-quiet" href="/api/review?limit={{ limit }}">JSON</a>
+        <a class="button button-quiet" href="/api/review?limit={{ limit }}{% if status %}&amp;status={{ status }}{% endif %}">JSON</a>
         <a class="button button-primary" href="/report">Library report <span aria-hidden="true">&#8594;</span></a>
     </div>
 </section>
 <section class="metric-grid detail-metrics">
     <div class="metric-card"><span class="metric-label">Needs review</span><strong>{{ runs|length }}<small> shown</small></strong><span class="metric-note">in this view</span></div>
+    <div class="metric-card {% if failure_count %}metric-alert{% endif %}"><span class="metric-label">Failures shown</span><strong>{{ failure_count }}</strong><span class="metric-note">priority evidence</span></div>
     <div class="metric-card"><span class="metric-label">Unlabeled total</span><strong>{{ totals.unlabeled_runs }}</strong><span class="metric-note">across the library</span></div>
-    <div class="metric-card {% if totals.failure_runs %}metric-alert{% endif %}"><span class="metric-label">Failure runs</span><strong>{{ totals.failure_runs }}</strong><span class="metric-note">unlabeled or not</span></div>
 </section>
 <section class="section-block review-section">
-    <div class="section-heading"><div><div class="eyebrow">REVIEW QUEUE</div><h2>Unlabeled runs</h2></div><span class="section-meta">{{ totals.labeled_runs }} labeled · {{ totals.unlabeled_runs }} left</span></div>
+    <div class="section-heading"><div><div class="eyebrow">REVIEW QUEUE</div><h2>{% if status == 'error' %}Failed{% elif status == 'ok' %}Healthy{% else %}Unlabeled{% endif %} runs</h2></div><span class="section-meta">{{ runs|length }} shown &middot; failures first</span></div>
+    <div class="state-filter" aria-label="Review status filter">
+        <a class="chip{% if not status %} chip-active{% endif %}" href="/review?limit={{ limit }}">All</a>
+        <a class="chip{% if status == 'error' %} chip-active{% endif %}" href="/review?limit={{ limit }}&amp;status=error">Failures</a>
+        <a class="chip{% if status == 'ok' %} chip-active{% endif %}" href="/review?limit={{ limit }}&amp;status=ok">Healthy</a>
+    </div>
     {% if runs %}
     <form id="bulk-label-form" class="bulk-label" aria-label="Apply one label to the selected runs">
         <input id="bulk-label-input" name="label" maxlength="80" placeholder="Label, e.g. triaged" aria-label="Label to apply">
         <button class="button button-primary" type="submit">Apply to selected <span aria-hidden="true">&#8594;</span></button>
         <span id="bulk-label-status" class="form-status" role="status"></span>
     </form>
-    <div class="table-wrap"><table><thead><tr><th><input type="checkbox" id="select-all" aria-label="Select all runs"></th><th>Status</th><th>Agent</th><th>Run</th><th>Tool calls</th><th>Duration</th><th>Source</th><th>Actions</th></tr></thead><tbody>{% for run in runs %}<tr><td><input type="checkbox" class="run-check" value="{{ run.run_id }}" aria-label="Select {{ run.run_id }}"></td><td><span class="badge badge-{{ run.status }}">{{ run.status }}</span></td><td>{{ run.agent_name }}</td><td class="mono">{{ run.run_id }}</td><td>{{ run.tool_count }}</td><td>{{ run.duration_ms|round(1) }} ms</td><td class="mono">{{ run.source_dir or 'api' }}/{{ run.source_name }}</td><td class="table-actions"><a class="button button-quiet" href="/runs/{{ run.run_id }}">Review</a></td></tr>{% endfor %}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th><input type="checkbox" id="select-all" aria-label="Select all runs"></th><th>Status</th><th>Agent</th><th>Run</th><th>Evidence</th><th>Tool calls</th><th>Duration</th><th>Source</th><th>Actions</th></tr></thead><tbody>{% for run in runs %}<tr><td><input type="checkbox" class="run-check" value="{{ run.run_id }}" aria-label="Select {{ run.run_id }}"></td><td><span class="badge badge-{{ run.status }}">{{ run.status }}</span></td><td>{{ run.agent_name }}</td><td class="mono">{{ run.run_id }}</td><td>{% if run.error_summary %}<div class="review-evidence"><strong>{{ run.error_summary|length }} failed span{% if run.error_summary|length != 1 %}s{% endif %}</strong><span>{{ run.error_summary[0].name }} &middot; {{ run.error_summary[0].message }}</span>{% if run.error_summary|length > 1 %}<small>+ {{ run.error_summary|length - 1 }} more</small>{% endif %}</div>{% else %}<span class="review-clear">No failed spans</span>{% endif %}</td><td>{{ run.tool_count }}</td><td>{{ run.duration_ms|round(1) }} ms</td><td class="mono">{{ run.source_dir or 'api' }}/{{ run.source_name }}</td><td class="table-actions"><a class="button button-quiet" href="/runs/{{ run.run_id }}">Review</a></td></tr>{% endfor %}</tbody></table></div>
     {% else %}
     <div class="empty-state"><span class="empty-mark">&#10003;</span><h3>Nothing left to review</h3><p>Every run in the library has a label. Add one to a run to clear its review flag.</p></div>
     {% endif %}

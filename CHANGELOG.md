@@ -4,6 +4,20 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.12.0 - 2026-08-04
+
+### Added
+
+- A failure-first review queue for unlabeled runs.
+- Status filters for the review page, API, and CLI.
+- Ordered failed-span summaries in review queue results.
+- Deterministic tests for priority ordering, filters, API output, CLI output, and page context.
+
+### Changed
+
+- Version numbers moved to 1.12.0.
+- The review table shows the first failed span before a reviewer opens the run.
+
 ## 1.11.0 - 2026-08-04
 
 ### Added

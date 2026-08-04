@@ -543,23 +543,38 @@ class TraceStore:
                 ).fetchall()
                 return _summarize_runs(connection, rows)
 
-    def unreviewed_runs(self, limit: int = 20) -> list[dict[str, Any]]:
-        """Return run summaries that have no review label.
+    def unreviewed_runs(
+        self,
+        limit: int = 20,
+        *,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return unlabeled runs with failure context for review.
 
-        A reviewer starts here. Each returned run has an empty label, so
-        it has not been triaged yet. The review page links each run to its
-        annotation form.
+        Failed runs come first. Within each status, older runs come first.
+        Pass status to show only ok or error runs.
         """
 
+        if status not in {None, "ok", "error"}:
+            raise ValueError("status must be 'ok', 'error', or None")
         safe_limit = max(1, min(limit, 100))
-        with traced_operation("storage.unreviewed_runs", {"review.limit": safe_limit}):
+        attributes: dict[str, Any] = {"review.limit": safe_limit}
+        if status is not None:
+            attributes["review.status"] = status
+        with traced_operation("storage.unreviewed_runs", attributes):
             with self._connect() as connection:
-                rows = connection.execute(
-                    "SELECT * FROM runs WHERE label = '' "
-                    "ORDER BY started_at DESC, run_id DESC LIMIT ?",
-                    (safe_limit,),
-                ).fetchall()
-                return _summarize_runs(connection, rows)
+                query = "SELECT * FROM runs WHERE label = ''"
+                params: list[Any] = []
+                if status is not None:
+                    query += " AND status = ?"
+                    params.append(status)
+                query += (
+                    " ORDER BY CASE WHEN status = 'error' THEN 0 ELSE 1 END, "
+                    "started_at ASC, run_id ASC LIMIT ?"
+                )
+                params.append(safe_limit)
+                rows = connection.execute(query, params).fetchall()
+                return _summarize_runs(connection, rows, include_error_summary=True)
 
     def library_report(self, *, older_than_days: int = 30) -> dict[str, Any]:
         """Return a folder-level summary of the local trace library.

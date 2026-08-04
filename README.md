@@ -32,6 +32,8 @@ Release 1.10 adds a span detail panel to the error timeline. Click a marker or a
 
 Release 1.11 adds ordered failed-span summaries to each day drill-down card and day export.
 
+Release 1.12 adds a failure-first review queue. Filter unlabeled runs by status and read failed-span context before opening a run.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -87,7 +89,7 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 The OpenTelemetry integration stays local by default. Set `ATW_OTEL_CONSOLE=1` to print workbench spans. Set `ATW_OTEL_COLLECTOR_ENDPOINT` to export them to a local collector.
 
-Each stored run keeps a local label and note. They form the review context for long-lived evidence. The server can sweep old evidence on an interval. The scheduler stays off unless you set `ATW_CLEANUP_EVERY_SECONDS`.
+Each stored run keeps a local label and note. They form the review context for long-lived evidence. The review queue orders failures first and includes failed-span summaries. The server can sweep old evidence on an interval. The scheduler stays off unless you set `ATW_CLEANUP_EVERY_SECONDS`.
 
 ## Setup
 
@@ -207,7 +209,17 @@ The command prints matching run summaries.
     "run_id": "run-candidate-001",
     "agent_name": "catalog-assistant",
     "status": "error",
-    "tool_count": 3
+    "tool_count": 3,
+    "error_summary": [
+      {
+        "name": "agent.run",
+        "message": "agent.run ended with status error"
+      },
+      {
+        "name": "reserve_inventory",
+        "message": "reservation window expired"
+      }
+    ]
   }
 ]
 ```
@@ -1154,6 +1166,17 @@ curl.exe "http://127.0.0.1:8000/api/review"
 
 The review page links each run to its annotation form.
 
+The queue shows failed runs first. It sorts each group by start time. Each failed run includes its ordered failed-span summary.
+
+Filter the queue by status.
+
+```powershell
+python -m agent_trace_workbench.cli review --status error
+curl.exe "http://127.0.0.1:8000/api/review?status=error"
+```
+
+The API and CLI return the same run summary. The summary adds an `error_summary` list for failed spans.
+
 ## Bulk labeling
 
 Apply one label to several runs at once.
@@ -1497,7 +1520,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 360 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 365 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -1512,6 +1535,8 @@ Search uses SQL `LIKE` matching. It does not rank results by relevance.
 Labels and notes stay local to the workbench database. Portable export files do not carry them.
 
 The review list shows runs with an empty label. A blank label counts as unreviewed.
+
+The review queue filters by recorded run status. It prioritizes failures, then older runs.
 
 Bulk labeling sets the label only. It leaves the notes on each run untouched.
 
@@ -1639,6 +1664,7 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 1.9 complete: add a run-level error timeline to the run detail page.
 - Release 1.10 complete: add a span detail panel to the run-level error timeline.
 - Release 1.11 complete: add ordered failed-span summaries to day cards, API output, CLI output, and CSV export.
+- Release 1.12 complete: add a failure-first review queue with status filters and failed-span context.
 - Next: choose the next bounded evidence-review slice.
 
 ## Repository map
