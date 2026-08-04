@@ -2,7 +2,7 @@
 {% block title %}Runs | Agent Trace Workbench{% endblock %}
 {% block content %}
 <section class="hero">
-    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 1.6</div>
+    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 1.7</div>
     <h1>See what your agent did.<br><em>Replay why it did it.</em></h1>
     <p class="hero-copy">Ingest local JSON traces, import OTLP exports, watch a folder, inspect every tool boundary, replay recorded work, compare runs, label evidence for review, and read a folder-level library report without a hosted service.</p>
     <div class="hero-actions">
@@ -85,6 +85,29 @@
             <span><strong>{{ "%.1f"|format(trend.totals.failure_rate * 100) }}%</strong> failure rate</span>
             <a class="button button-quiet" href="{{ trend_links.json }}">JSON <span aria-hidden="true">&#8594;</span></a>
             <a class="button button-quiet" href="{{ trend_links.csv }}">CSV <span aria-hidden="true">&#8594;</span></a>
+        </div>
+    </div>
+    <div class="trend-status">
+        <div class="trend-status-head">
+            <div><div class="eyebrow">STATUS BREAKDOWN</div><h3>What shapes each day?</h3></div>
+            <span class="section-meta">run counts by status{% if selected_agent %} · {{ selected_agent }}{% endif %}</span>
+        </div>
+        <div class="trend-chart" role="img" aria-label="Daily run counts by status over the last {{ trend.days }} days{% if selected_agent %} for {{ selected_agent }}{% endif %}">
+            <svg viewBox="0 0 {{ status_bars.width }} {{ status_bars.height }}" preserveAspectRatio="none" class="status-svg">
+                {% for bar in status_bars.bars %}{% if bar.segments %}
+                <g class="status-bar">
+                    {% for segment in bar.segments %}<rect x="{{ bar.x }}" y="{{ segment.y1 }}" width="{{ status_bars.bar_width }}" height="{{ segment.y0 - segment.y1 }}" class="bar-{{ segment.cls }}"></rect>{% endfor %}
+                </g>
+                {% endif %}{% endfor %}
+            </svg>
+            <div class="trend-labels">
+                {% for label in trend.labels %}<span class="mono" style="left: {{ label.x / trend.width * 100 }}%">{{ label.day }}</span>{% endfor %}
+            </div>
+        </div>
+        <div class="trend-legend">
+            {% for item in status_bars.legend %}<span class="legend-item"><i class="legend-swatch bar-{{ item.cls }}"></i><span>{{ item.status }}</span><strong>{{ item.total }}</strong></span>{% endfor %}
+            <a class="button button-quiet" href="{{ status_links.json }}">JSON <span aria-hidden="true">&#8594;</span></a>
+            <a class="button button-quiet" href="{{ status_links.csv }}">CSV <span aria-hidden="true">&#8594;</span></a>
         </div>
     </div>
     {% else %}

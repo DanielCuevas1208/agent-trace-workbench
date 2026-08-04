@@ -772,6 +772,62 @@ class TraceStore:
             )
         return buckets
 
+    def status_trend(
+        self,
+        days: int = 14,
+        *,
+        agent_name: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return a daily run status breakdown over the last N days.
+
+        The trend groups runs by the calendar day (UTC) when they
+        started. Each bucket reports the total runs and a per-status
+        count, so a reviewer sees the shape of the day beside the
+        failure line. Pass agent_name to restrict the breakdown to one
+        agent. Empty days stay in the window with an empty status map,
+        so the axis matches the failure trend.
+        """
+
+        if days < 1:
+            raise ValueError("days must be at least 1")
+        safe_days = min(days, 90)
+        start_day = (_now_utc() - timedelta(days=safe_days - 1)).date()
+        start_text = start_day.strftime("%Y-%m-%d")
+        query = """
+            SELECT substr(started_at, 1, 10) AS day,
+                   status,
+                   COUNT(*) AS count
+            FROM runs
+            WHERE substr(started_at, 1, 10) >= ?
+        """
+        params: list[Any] = [start_text]
+        if agent_name:
+            query += " AND agent_name = ?"
+            params.append(agent_name)
+        query += """
+            GROUP BY day, status
+            ORDER BY day ASC, status ASC
+        """
+        with traced_operation("storage.status_trend", {"trend.days": safe_days}):
+            with self._connect() as connection:
+                rows = connection.execute(query, params).fetchall()
+        per_day: dict[str, dict[str, int]] = {}
+        for row in rows:
+            counts = per_day.setdefault(row["day"], {})
+            counts[row["status"]] = row["count"]
+        buckets: list[dict[str, Any]] = []
+        for offset in range(safe_days):
+            day = (start_day + timedelta(days=offset)).strftime("%Y-%m-%d")
+            statuses = per_day.get(day, {})
+            buckets.append(
+                {
+                    "day": day,
+                    "runs": sum(statuses.values()),
+                    "statuses": statuses,
+                }
+            )
+        return buckets
+
     def runs_on_day(
         self,
         day: str,

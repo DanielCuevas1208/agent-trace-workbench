@@ -24,6 +24,7 @@ from .export import (
     day_runs_to_csv,
     report_to_csv,
     run_tools_to_csv,
+    status_trend_to_csv,
     trend_to_csv,
 )
 from .handlers import ReplayPolicy, load_handler_config
@@ -99,6 +100,9 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             if selected_day
             else None
         )
+        status_breakdown = app.state.store.status_trend(
+            days, agent_name=selected_agent or None
+        )
         return render_template(
             request,
             "dashboard.html",
@@ -106,6 +110,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 "runs": runs,
                 "stats": _stats(runs),
                 "trend": chart,
+                "status_bars": _status_bars(status_breakdown),
                 "query": q or "",
                 "trend_agents": app.state.store.trend_agents(),
                 "selected_agent": selected_agent,
@@ -117,6 +122,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                     else None
                 ),
                 "trend_links": _trend_links(selected_agent, days),
+                "status_links": _status_links(selected_agent, days),
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
                 "scheduler": _scheduler_status(app),
@@ -381,6 +387,23 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/trend/agents")
     def api_trend_agents() -> list[str]:
         return app.state.store.trend_agents()
+
+    @app.get("/api/trend/statuses", response_model=None)
+    def api_trend_statuses(
+        days: int = Query(default=14, ge=1, le=90),
+        agent: str | None = Query(default=None, max_length=200),
+        export_format: str = Query(default="json", alias="format"),
+    ) -> Response | list[dict[str, Any]]:
+        buckets = app.state.store.status_trend(days, agent_name=agent)
+        if export_format == "csv":
+            return _download_response(
+                status_trend_to_csv(buckets, agent_name=agent or ""),
+                "status-trend.csv",
+                "text/csv; charset=utf-8",
+            )
+        if export_format != "json":
+            raise HTTPException(status_code=400, detail="format must be 'json' or 'csv'")
+        return buckets
 
     @app.get("/api/trend/{day}", response_model=None)
     def api_trend_day(
@@ -816,6 +839,111 @@ def _trend_links(selected_agent: str, days: int) -> dict[str, str]:
     return {
         "json": f"/api/trend?{prefix}",
         "csv": f"/api/trend?{prefix}&format=csv",
+    }
+
+
+def _status_links(selected_agent: str, days: int) -> dict[str, str]:
+    """Return the JSON and CSV export links for the status breakdown panel.
+
+    The links keep the active agent filter and any non-default window
+    size, so a download matches what the panel draws. Agent names are
+    URL-encoded because they may contain spaces or punctuation.
+    """
+
+    params: dict[str, Any] = {}
+    if days != 14:
+        params["days"] = days
+    if selected_agent:
+        params["agent"] = selected_agent
+    if not params:
+        return {"json": "/api/trend/statuses", "csv": "/api/trend/statuses?format=csv"}
+    prefix = urlencode(params)
+    return {
+        "json": f"/api/trend/statuses?{prefix}",
+        "csv": f"/api/trend/statuses?{prefix}&format=csv",
+    }
+
+
+_STATUS_PRIORITY = {"ok": 0, "error": 1, "unset": 2}
+
+
+def _status_order(statuses: list[str]) -> list[str]:
+    """Return status names in a stable visual order.
+
+    Known statuses sort by their priority so the stacked bars always
+    draw ok at the bottom and error above it. Unknown statuses follow in
+    alphabetical order, because an imported trace may carry a name the
+    workbench does not recognise.
+    """
+
+    return sorted(statuses, key=lambda status: (_STATUS_PRIORITY.get(status, 3), status))
+
+
+def _status_class(status: str) -> str:
+    """Map a run status to a stable CSS color class."""
+
+    return status if status in _STATUS_PRIORITY else "other"
+
+
+def _status_bars(trend: list[dict[str, Any]]) -> dict[str, Any]:
+    """Shape a status breakdown into SVG-ready stacked bars for the dashboard.
+
+    The helper maps each day to a bar on a fixed view box. Each bar
+    stacks one segment per status, scaled by the busiest day in the
+    window. It returns the bar geometry and the legend totals so the
+    template can draw the panel without any charting dependency.
+    """
+
+    width = 680
+    height = 110
+    pad_x = 8
+    pad_y = 10
+    count = len(trend)
+    step = (width - 2 * pad_x) / max(count - 1, 1)
+    bar_width = min(max(round(step * 0.55, 2), 6.0), 40.0)
+    plot_height = height - 2 * pad_y
+    max_total = max((item["runs"] for item in trend), default=0)
+    bars = []
+    for index, item in enumerate(trend):
+        x = round(pad_x + index * step, 2)
+        segments = []
+        y_top = height - pad_y
+        for status in _status_order(list(item["statuses"])):
+            segment_count = item["statuses"][status]
+            if max_total == 0:
+                continue
+            segment_height = round(segment_count / max_total * plot_height, 2)
+            y0 = y_top
+            y1 = round(y_top - segment_height, 2)
+            y_top = y1
+            segments.append(
+                {
+                    "status": status,
+                    "cls": _status_class(status),
+                    "count": segment_count,
+                    "y0": y0,
+                    "y1": y1,
+                }
+            )
+        bars.append({"x": x, "day": item["day"], "runs": item["runs"], "segments": segments})
+    status_names = sorted(
+        {status for item in trend for status in item["statuses"]},
+        key=lambda status: (_STATUS_PRIORITY.get(status, 3), status),
+    )
+    totals = {status: 0 for status in status_names}
+    for item in trend:
+        for status, segment_count in item["statuses"].items():
+            totals[status] += segment_count
+    legend = [
+        {"status": status, "cls": _status_class(status), "total": totals[status]}
+        for status in status_names
+    ]
+    return {
+        "width": width,
+        "height": height,
+        "bar_width": bar_width,
+        "bars": bars,
+        "legend": legend,
     }
 
 

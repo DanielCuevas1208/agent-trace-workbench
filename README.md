@@ -22,6 +22,8 @@ Release 1.5 adds a CSV export for the failure trend and an agent-level trend fil
 
 Release 1.6 adds a trend window selector and a per-day drill-down on the dashboard. Choose 7, 14, 30, or 90 day views. Click a day to see the runs that started that day.
 
+Release 1.7 adds a status breakdown beside the daily failure line. Each trend day shows a stacked bar of run status counts. Read the same counts from the API or the CLI.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -64,7 +66,7 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 - `models.py` defines the portable trace contract.
 - `handlers.py` loads local handler config and applies side-effect guards.
-- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It also computes the review list, applies bulk labels, builds the library report, computes the daily failure trend, lists the runs for one day, and enforces the retention cutoff for cleanup. A cleanup log records each scheduled sweep.
+- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It also computes the review list, applies bulk labels, builds the library report, computes the daily failure trend and the status breakdown, lists the runs for one day, and enforces the retention cutoff for cleanup. A cleanup log records each scheduled sweep.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
@@ -407,6 +409,64 @@ python -m agent_trace_workbench.cli trend --day 2026-07-31 --format csv
 ```
 
 The day panel offers the same CSV download. A day outside the active window is ignored. The dashboard draws no panel for it.
+
+## Status breakdown
+
+The dashboard shows which run statuses shape each trend day.
+
+Each day draws one stacked bar beside the failure line. The bar shows how many runs ended ok and how many failed. A legend lists the window totals for each status.
+
+Read the breakdown over the API.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/trend/statuses?days=14"
+```
+
+The response lists one bucket per day. Each bucket maps status names to run counts.
+
+```json
+[
+  {
+    "day": "2026-07-31",
+    "runs": 2,
+    "statuses": {
+      "ok": 1,
+      "error": 1
+    }
+  }
+]
+```
+
+Filter the breakdown to one agent.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/trend/statuses?agent=catalog-assistant"
+```
+
+The dashboard panel keeps the active agent and window. It follows the same trend filter.
+
+Download the breakdown as CSV.
+
+```powershell
+curl.exe -o status-trend.csv "http://127.0.0.1:8000/api/trend/statuses?format=csv"
+```
+
+The file lists one row per status on a day. Empty days produce no rows.
+
+```text
+day,agent_name,status,runs
+2026-07-31,,ok,1
+2026-07-31,,error,1
+```
+
+Use the CLI for scripts.
+
+```powershell
+python -m agent_trace_workbench.cli trend --statuses
+python -m agent_trace_workbench.cli trend --statuses --agent catalog-assistant --format csv
+```
+
+The panel JSON and CSV links keep the active agent and window.
 
 ## Saved comparisons
 
@@ -1203,7 +1263,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, reports, retention cleanup, and scheduled cleanup. It covers the CLI, the API, collector export, the server scheduler, and the dashboard failure trend, including the agent filter, the window selector, the day drill-down, and the CSV exports.
+The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, reports, retention cleanup, and scheduled cleanup. It covers the CLI, the API, collector export, the server scheduler, and the dashboard failure trend, including the agent filter, the window selector, the day drill-down, the status breakdown, and the CSV exports.
 
 Run the checks with these commands.
 
@@ -1214,7 +1274,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 289 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 308 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -1249,6 +1309,14 @@ A dry-run sweep never records history. Use the real sweep to keep the log curren
 The failure trend groups by the calendar day a run started. It uses the UTC day.
 
 The trend counts a run by its recorded status. A run with any error span counts as a failure.
+
+The status breakdown groups by the same UTC calendar day as the trend.
+
+The status breakdown counts runs by their recorded status. A run with an error span counts as an error run.
+
+The status breakdown draws one stacked bar per day. The bar height scales to the busiest day in the window.
+
+The status CSV lists one row per status present on a day. Empty days produce no rows.
 
 The trend agent filter matches the exact recorded agent name.
 
@@ -1313,13 +1381,14 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 1.4 complete: add a server-side sweep scheduler and a failure trend line on the dashboard.
 - Release 1.5 complete: add a CSV export for the failure trend and an agent-level trend filter on the dashboard.
 - Release 1.6 complete: add a trend window selector and a per-day drill-down on the dashboard chart.
-- Release 1.7: add a status breakdown beside the daily failure line on the dashboard.
+- Release 1.7 complete: add a status breakdown beside the daily failure line on the dashboard.
+- Release 1.8: add an agent comparison overlay to the failure trend.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline, candidate, and second-agent traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, reports, retention cleanup, scheduled cleanup, the server scheduler, and the failure trend, including the agent filter, the window selector, the day drill-down, and the CSV exports.
+`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, reports, retention cleanup, scheduled cleanup, the server scheduler, and the failure trend, including the agent filter, the window selector, the day drill-down, the status breakdown, and the CSV exports.
 
 `static/` and `templates/` contain the presentation layer.
 

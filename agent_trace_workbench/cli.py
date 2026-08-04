@@ -17,6 +17,7 @@ from .export import (
     day_runs_to_csv,
     report_to_csv,
     run_tools_to_csv,
+    status_trend_to_csv,
     trend_to_csv,
 )
 from .handlers import ReplayPolicy, load_handler_config
@@ -169,6 +170,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--day",
         default=None,
         help="List the runs that started on one YYYY-MM-DD day",
+    )
+    trend.add_argument(
+        "--statuses",
+        action="store_true",
+        help="Show the per-day run status breakdown",
     )
 
     annotate = subparsers.add_parser(
@@ -418,6 +424,12 @@ def main() -> None:
                 )
         elif args.days < 1 or args.days > 90:
             raise SystemExit("--days must be between 1 and 90")
+        elif args.statuses:
+            buckets = store.status_trend(args.days, agent_name=args.agent)
+            if args.format == "csv":
+                print(status_trend_to_csv(buckets, agent_name=args.agent or ""), end="")
+            else:
+                print(json.dumps(buckets, indent=2))
         else:
             trend = store.failure_trend(args.days, agent_name=args.agent)
             if args.format == "csv":
