@@ -20,6 +20,8 @@ Release 1.4 adds a server-side sweep scheduler and a failure trend line on the d
 
 Release 1.5 adds a CSV export for the failure trend and an agent-level trend filter on the dashboard. Filter the chart to one agent. Download the same series as CSV from the panel, the API, or the CLI.
 
+Release 1.6 adds a trend window selector and a per-day drill-down on the dashboard. Choose 7, 14, 30, or 90 day views. Click a day to see the runs that started that day.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -62,12 +64,12 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 - `models.py` defines the portable trace contract.
 - `handlers.py` loads local handler config and applies side-effect guards.
-- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It also computes the review list, applies bulk labels, builds the library report, and enforces the retention cutoff for cleanup. A cleanup log records each scheduled sweep.
+- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It also computes the review list, applies bulk labels, builds the library report, computes the daily failure trend, lists the runs for one day, and enforces the retention cutoff for cleanup. A cleanup log records each scheduled sweep.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
 - `compare.py` aligns tool calls by recorded position and reports field-level deltas.
-- `export.py` renders comparisons, run tool calls, library reports, and failure trends as CSV files.
+- `export.py` renders comparisons, run tool calls, library reports, failure trends, and day run lists as CSV files.
 - `collector.py` posts recorded runs to a local collector over OTLP HTTP JSON.
 - `main.py` serves the interface and the JSON API.
 - `scheduler.py` runs server-side retention sweeps on an interval.
@@ -323,6 +325,88 @@ python -m agent_trace_workbench.cli trend --agent catalog-assistant --format csv
 ```
 
 The dashboard panel links to both downloads. The links keep the active agent.
+
+## Trend window
+
+Choose the trend window on the dashboard chart.
+
+Select 7, 14, 30, or 90 days beside the agent filter. The chart redraws with that window. Window totals match the selected span.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/trend?days=30"
+```
+
+The response keeps one bucket per day across the full window. Empty days stay in the series.
+
+The JSON and CSV export links keep the active window. The default is 14 days.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/trend?days=30&format=csv"
+python -m agent_trace_workbench.cli trend --days 30
+```
+
+## Day drill-down
+
+Click a day on the trend chart. The dashboard opens a panel with the runs that started that day.
+
+Each day dot links to that panel. The panel lists one run per card. Each card links to its run page.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/trend/2026-07-31"
+```
+
+The response lists the runs for that day.
+
+```json
+{
+  "day": "2026-07-31",
+  "agent": "",
+  "runs": [
+    {
+      "run_id": "run-baseline-001",
+      "agent_name": "catalog-assistant",
+      "status": "ok",
+      "tool_count": 2
+    },
+    {
+      "run_id": "run-candidate-001",
+      "agent_name": "catalog-assistant",
+      "status": "error",
+      "tool_count": 3
+    }
+  ]
+}
+```
+
+Filter the day view to one agent.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/trend/2026-07-31?agent=catalog-assistant"
+```
+
+The day panel on the dashboard keeps the active agent. Change the agent or the window on the trend form. The day view follows both.
+
+Download the day runs as CSV.
+
+```powershell
+curl.exe -o runs-2026-07-31.csv "http://127.0.0.1:8000/api/trend/2026-07-31?format=csv"
+```
+
+The file lists one row per run. The day cell repeats the drill target.
+
+```text
+day,run_id,agent_name,status,tool_count,duration_ms,source_dir,label
+2026-07-31,run-baseline-001,catalog-assistant,ok,2,220.0,fixtures,
+```
+
+Use the CLI for scripts.
+
+```powershell
+python -m agent_trace_workbench.cli trend --day 2026-07-31
+python -m agent_trace_workbench.cli trend --day 2026-07-31 --format csv
+```
+
+The day panel offers the same CSV download. A day outside the active window is ignored. The dashboard draws no panel for it.
 
 ## Saved comparisons
 
@@ -1119,7 +1203,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, reports, retention cleanup, and scheduled cleanup. It covers the CLI, the API, collector export, the server scheduler, and the dashboard failure trend, including the agent filter and the CSV export.
+The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, annotations, bulk labels, export, review, reports, retention cleanup, and scheduled cleanup. It covers the CLI, the API, collector export, the server scheduler, and the dashboard failure trend, including the agent filter, the window selector, the day drill-down, and the CSV exports.
 
 Run the checks with these commands.
 
@@ -1130,7 +1214,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 268 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 289 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -1171,6 +1255,10 @@ The trend agent filter matches the exact recorded agent name.
 The trend CSV repeats the active agent in every row. The all-agents view leaves that cell empty.
 
 The trend export lists one row per day. It does not add a window total row.
+
+The day drill-down groups runs by the UTC calendar day they started. It ignores a day outside the active trend window.
+
+The day CSV repeats the active agent in every row. The all-agents view leaves that cell empty.
 
 The cleanup history records policy and counts. It does not store the deleted traces.
 
@@ -1224,13 +1312,14 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 1.3 complete: add a scheduled cleanup run and a retention line to the library report.
 - Release 1.4 complete: add a server-side sweep scheduler and a failure trend line on the dashboard.
 - Release 1.5 complete: add a CSV export for the failure trend and an agent-level trend filter on the dashboard.
-- Release 1.6: add a per-day trend drill-down and a window selector on the dashboard chart.
+- Release 1.6 complete: add a trend window selector and a per-day drill-down on the dashboard chart.
+- Release 1.7: add a status breakdown beside the daily failure line on the dashboard.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline, candidate, and second-agent traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, reports, retention cleanup, scheduled cleanup, the server scheduler, and the failure trend, including the agent filter and the CSV export.
+`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, export, review, reports, retention cleanup, scheduled cleanup, the server scheduler, and the failure trend, including the agent filter, the window selector, the day drill-down, and the CSV exports.
 
 `static/` and `templates/` contain the presentation layer.
 

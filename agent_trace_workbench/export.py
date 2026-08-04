@@ -69,6 +69,17 @@ _REPORT_HEADERS = [
 
 _TREND_HEADERS = ["day", "agent_name", "runs", "failures", "failure_rate"]
 
+_DAY_RUNS_HEADERS = [
+    "day",
+    "run_id",
+    "agent_name",
+    "status",
+    "tool_count",
+    "duration_ms",
+    "source_dir",
+    "label",
+]
+
 _SECTION_TOTAL = "total"
 _SECTION_SOURCE = "source"
 _SECTION_AGENT = "agent"
@@ -251,6 +262,34 @@ def trend_to_csv(trend: list[dict[str, Any]], agent_name: str = "") -> str:
                 }
             )
         return _to_csv(_TREND_HEADERS, rows)
+
+
+def day_runs_to_csv(day: str, runs: list[dict[str, Any]], agent_name: str = "") -> str:
+    """Render the runs that started on one day as a CSV document.
+
+    The document lists one row per run. The day cell repeats the drill
+    target, so the file stays self-describing. The agent_name cell
+    repeats the active trend filter when one is set.
+    """
+
+    with traced_operation(
+        "export.day_csv", {"trend.day": day, "trend.agent": agent_name}
+    ):
+        rows: list[dict[str, Any]] = []
+        for run in runs:
+            rows.append(
+                {
+                    "day": day,
+                    "run_id": run.get("run_id", ""),
+                    "agent_name": run.get("agent_name", ""),
+                    "status": run.get("status", ""),
+                    "tool_count": _number(run.get("tool_count")),
+                    "duration_ms": _number(run.get("duration_ms")),
+                    "source_dir": run.get("source_dir", ""),
+                    "label": run.get("label", ""),
+                }
+            )
+        return _to_csv(_DAY_RUNS_HEADERS, rows)
 
 
 def _to_csv(headers: list[str], rows: list[dict[str, Any]]) -> str:

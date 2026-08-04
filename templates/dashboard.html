@@ -2,7 +2,7 @@
 {% block title %}Runs | Agent Trace Workbench{% endblock %}
 {% block content %}
 <section class="hero">
-    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 1.5</div>
+    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 1.6</div>
     <h1>See what your agent did.<br><em>Replay why it did it.</em></h1>
     <p class="hero-copy">Ingest local JSON traces, import OTLP exports, watch a folder, inspect every tool boundary, replay recorded work, compare runs, label evidence for review, and read a folder-level library report without a hosted service.</p>
     <div class="hero-actions">
@@ -58,9 +58,14 @@
             <option value="">All agents</option>
             {% for agent in trend_agents %}<option value="{{ agent }}"{% if agent == selected_agent %} selected{% endif %}>{{ agent }}</option>{% endfor %}
         </select>
+        <label class="visually-hidden" for="trend-days">Trend window</label>
+        <select id="trend-days" name="days">
+            {% for option in [7, 14, 30, 90] %}<option value="{{ option }}"{% if option == trend.days %} selected{% endif %}>{{ option }} days</option>{% endfor %}
+        </select>
         {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
+        {% if selected_day %}<input type="hidden" name="day" value="{{ selected_day }}">{% endif %}
         <button class="button button-primary" type="submit">Filter</button>
-        {% if selected_agent %}<a class="button button-quiet" href="/#trend">Clear</a>{% endif %}
+        {% if selected_agent or selected_day or trend.days != 14 %}<a class="button button-quiet" href="/#trend">Clear</a>{% endif %}
     </form>
     {% endif %}
     {% if trend.active_days %}
@@ -68,7 +73,7 @@
         <div class="trend-chart" role="img" aria-label="Daily failure rate over the last {{ trend.days }} days{% if selected_agent %} for {{ selected_agent }}{% endif %}">
             <svg viewBox="0 0 {{ trend.width }} {{ trend.height }}" preserveAspectRatio="none" class="trend-svg">
                 <polyline points="{% for point in trend.points %}{{ point.x }},{{ point.y }} {% endfor %}" class="trend-line" vector-effect="non-scaling-stroke"></polyline>
-                {% for point in trend.points %}<circle cx="{{ point.x }}" cy="{{ point.y }}" r="3.2" class="trend-dot" vector-effect="non-scaling-stroke"></circle>{% endfor %}
+                {% for point in trend.points %}<a href="{{ point.href }}" class="trend-dot-link" aria-label="Show runs on {{ point.day }}"><circle cx="{{ point.x }}" cy="{{ point.y }}" r="3.2" class="trend-dot" vector-effect="non-scaling-stroke"></circle></a>{% endfor %}
             </svg>
             <div class="trend-labels">
                 {% for label in trend.labels %}<span class="mono" style="left: {{ label.x / trend.width * 100 }}%">{{ label.day }}</span>{% endfor %}
@@ -87,11 +92,38 @@
     {% endif %}
 </section>
 
+{% if selected_day %}
+<section id="trend-day" class="section-block">
+    <div class="section-heading"><div><div class="eyebrow">03 / DAY DRILL-DOWN</div><h2>Runs on {{ selected_day }}</h2></div><span class="section-meta">{% if selected_agent %}{{ selected_agent }} · {% endif %}{{ day_runs|length }} shown</span></div>
+    {% if day_runs %}
+    <div class="run-grid">
+        {% for run in day_runs %}
+        <a class="run-card" href="/runs/{{ run.run_id }}">
+            <div class="run-card-top"><span class="status-dot status-{{ run.status }}"></span><span class="status-text">{{ run.status }}</span><span class="run-duration">{{ run.duration_ms|round(1) }} ms</span></div>
+            <h3>{{ run.agent_name }}{% if run.label %} <span class="badge badge-label">{{ run.label }}</span>{% endif %}</h3>
+            <p class="run-id">{{ run.run_id }}</p>
+            <div class="run-card-bottom"><span>{{ run.tool_count }} tool calls</span><span>{{ run.source_dir }}</span></div>
+        </a>
+        {% endfor %}
+    </div>
+    <div class="day-actions">
+        <a class="button button-quiet" href="{{ day_csv_link }}">CSV <span aria-hidden="true">&#8594;</span></a>
+        <a class="button button-quiet" href="/#trend">Back to trend</a>
+    </div>
+    {% else %}
+    <div class="empty-state"><span class="empty-mark">+</span><h3>{% if selected_agent %}No runs for {{ selected_agent }} on {{ selected_day }}{% else %}No runs on {{ selected_day }}{% endif %}</h3><p>Pick another day on the chart to drill into its evidence.</p></div>
+    {% endif %}
+</section>
+{% endif %}
+
 <section id="recent-runs" class="section-block">
     <div class="section-heading"><div><div class="eyebrow">04 / TRACE LIBRARY</div><h2>Recent runs</h2></div><span class="section-meta">{{ runs|length }} shown</span></div>
     <form method="get" action="/" class="search-bar" role="search">
         <label class="visually-hidden" for="run-search">Search runs</label>
         <input id="run-search" type="search" name="q" value="{{ query }}" placeholder="Search by run ID, agent, span, or tool...">
+        {% if selected_agent %}<input type="hidden" name="agent" value="{{ selected_agent }}">{% endif %}
+        {% if trend.days != 14 %}<input type="hidden" name="days" value="{{ trend.days }}">{% endif %}
+        {% if selected_day %}<input type="hidden" name="day" value="{{ selected_day }}">{% endif %}
         <button class="button button-primary" type="submit">Search</button>
         {% if query %}<a class="button button-quiet" href="/">Clear</a>{% endif %}
     </form>

@@ -12,7 +12,13 @@ from pathlib import Path
 
 from .collector import export_run_to_collector
 from .compare import compare_runs
-from .export import comparison_to_csv, report_to_csv, run_tools_to_csv, trend_to_csv
+from .export import (
+    comparison_to_csv,
+    day_runs_to_csv,
+    report_to_csv,
+    run_tools_to_csv,
+    trend_to_csv,
+)
 from .handlers import ReplayPolicy, load_handler_config
 from .ingestion import DirectoryWatcher, watch_directory
 from .models import TraceDocument
@@ -158,6 +164,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--agents",
         action="store_true",
         help="List the agent names available for filtering",
+    )
+    trend.add_argument(
+        "--day",
+        default=None,
+        help="List the runs that started on one YYYY-MM-DD day",
     )
 
     annotate = subparsers.add_parser(
@@ -391,6 +402,20 @@ def main() -> None:
     elif args.command == "trend":
         if args.agents:
             print(json.dumps(store.trend_agents(), indent=2))
+        elif args.day:
+            try:
+                runs = store.runs_on_day(args.day, agent_name=args.agent)
+            except ValueError:
+                raise SystemExit("--day must use the YYYY-MM-DD format") from None
+            if args.format == "csv":
+                print(day_runs_to_csv(args.day, runs, agent_name=args.agent or ""), end="")
+            else:
+                print(
+                    json.dumps(
+                        {"day": args.day, "agent": args.agent or "", "runs": runs},
+                        indent=2,
+                    )
+                )
         elif args.days < 1 or args.days > 90:
             raise SystemExit("--days must be between 1 and 90")
         else:

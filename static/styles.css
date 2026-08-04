@@ -206,7 +206,11 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--navy); c
 .trend-chart { position: relative; }
 .trend-svg { display: block; width: 100%; height: 150px; overflow: visible; }
 .trend-line { fill: none; stroke: var(--coral); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.trend-dot { fill: var(--coral); stroke: #fff; stroke-width: 1.2; }
+.trend-dot { fill: var(--coral); stroke: #fff; stroke-width: 1.2; transition: r .12s ease; }
+.trend-dot-link { cursor: pointer; }
+.trend-dot-link:hover .trend-dot, .trend-dot-link:focus-visible .trend-dot { r: 5.2; fill: var(--navy); }
+.trend-dot-link:focus-visible { outline: 0; }
+.trend-dot-link:focus-visible .trend-dot { outline: 2px solid var(--blue); outline-offset: 2px; }
 .trend-labels { display: flex; justify-content: space-between; margin-top: 6px; color: var(--muted); font-size: 10px; }
 .trend-labels span { position: relative; transform: translateX(-50%); }
 .trend-labels span:first-child { transform: none; }
@@ -215,6 +219,8 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--navy); c
 .trend-foot strong { color: var(--navy); font: 500 20px Georgia, serif; letter-spacing: -.02em; }
 .trend-foot .trend-failures strong { color: var(--coral); }
 .trend-foot .button { margin-left: auto; }
+.day-actions { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+.day-actions .button { min-height: 42px; }
 .scheduler-section .section-heading { align-items: center; }
 .scheduler-section .badge { vertical-align: middle; }
 .scheduler-copy { max-width: 560px; margin-bottom: 20px; color: var(--muted); font-size: 13px; line-height: 1.55; }
