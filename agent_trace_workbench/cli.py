@@ -102,6 +102,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output format",
     )
 
+    span = subparsers.add_parser(
+        "span", help="Show the full detail of one recorded span"
+    )
+    span.add_argument("run_id")
+    span.add_argument("span_id")
+
     compare = subparsers.add_parser("compare", help="Compare two recorded runs")
     compare.add_argument("run_a")
     compare.add_argument("run_b")
@@ -399,6 +405,11 @@ def main() -> None:
             print(error_timeline_to_csv(timeline), end="")
         else:
             print(json.dumps(timeline, indent=2))
+    elif args.command == "span":
+        detail = store.span_detail(args.run_id, args.span_id)
+        if detail is None:
+            raise SystemExit(f"Span not found: {args.span_id}")
+        print(json.dumps(detail, indent=2))
     elif args.command == "search":
         print(json.dumps(store.search_runs(args.query, args.limit), indent=2))
     elif args.command == "comparisons":

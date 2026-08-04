@@ -38,6 +38,6 @@ Pruning deletes runs from the local database. Preview with a dry run before you 
 
 | Version | Supported |
 | ------- | --------- |
-| 1.2.x   | Yes       |
-| 1.1.x   | No        |
-| 1.0.x   | No        |
+| 1.10.x  | Yes       |
+| 1.9.x   | No        |
+| 1.8.x   | No        |

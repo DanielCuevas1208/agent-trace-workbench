@@ -999,6 +999,43 @@ class TraceStore:
             "events": events,
         }
 
+    def span_detail(self, run_id: str, span_id: str) -> dict[str, Any] | None:
+        """Return the full record of one span with run-relative offsets.
+
+        The detail carries the same fields as the error timeline event
+        plus the recorded attributes and tool call. A reviewer can read
+        one failed span without leaving the timeline. It also reports
+        the offsets from the run start and the stable failure message.
+        Returns None when the run or the span does not exist.
+        """
+
+        with traced_operation(
+            "storage.span_detail", {"run.id": run_id, "span.id": span_id}
+        ):
+            with self._connect() as connection:
+                run = connection.execute(
+                    "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                if run is None:
+                    return None
+                row = connection.execute(
+                    "SELECT * FROM spans WHERE run_id = ? AND span_id = ?",
+                    (run_id, span_id),
+                ).fetchone()
+                if row is None:
+                    return None
+        origin = ensure_utc(datetime.fromisoformat(run["started_at"]))
+        detail = _span_row(row)
+        detail["run_id"] = run_id
+        detail["start_offset_ms"] = round(
+            _offset_ms(origin, datetime.fromisoformat(row["start_time"])), 3
+        )
+        detail["end_offset_ms"] = round(
+            _offset_ms(origin, datetime.fromisoformat(row["end_time"])), 3
+        )
+        detail["error"] = _error_message(row)
+        return detail
+
     def update_annotations(
         self,
         run_id: str,

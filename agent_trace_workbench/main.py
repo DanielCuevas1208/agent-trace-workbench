@@ -535,6 +535,13 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="format must be 'json' or 'csv'")
         return timeline
 
+    @app.get("/api/runs/{run_id}/spans/{span_id}")
+    def api_run_span_detail(run_id: str, span_id: str) -> dict[str, Any]:
+        detail = app.state.store.span_detail(run_id, span_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail=f"Span not found: {span_id}")
+        return detail
+
     @app.post("/api/traces", status_code=201)
     def api_ingest(trace: TraceDocument, request: Request) -> dict[str, Any]:
         source_name = request.headers.get("x-trace-source", "api.json")

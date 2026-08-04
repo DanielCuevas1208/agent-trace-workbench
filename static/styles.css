@@ -122,10 +122,24 @@ select { min-height: 44px; padding: 0 12px; font-family: inherit; }
 .timeline-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .timeline-foot .button { min-height: 36px; padding: 0 11px; font-size: 10px; }
 .timeline-list { margin-top: 18px; border-top: 1px solid var(--line); }
-.timeline-row { display: grid; grid-template-columns: 14px 1fr 2fr; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--line); }
-.timeline-row:hover strong, .timeline-row:hover .timeline-error { color: var(--blue); }
-.timeline-row strong { display: block; margin-bottom: 3px; color: var(--navy); font-size: 14px; }
-.timeline-row small { color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.timeline-row { display: flex; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.timeline-row-main { display: grid; grid-template-columns: 14px 1fr 2fr; align-items: center; gap: 12px; color: inherit; }
+.timeline-row-main:hover strong, .timeline-row-main:hover .timeline-error { color: var(--blue); }
+.timeline-row-main strong { display: block; margin-bottom: 3px; color: var(--navy); font-size: 14px; }
+.timeline-row-main small { color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.timeline-inspect { min-height: 30px; padding: 0 10px; font-size: 10px; }
+.timeline-event-click { cursor: pointer; }
+.timeline-event-click:focus-visible { outline: 0; }
+.timeline-event-click:focus-visible .timeline-dot, .timeline-event-click:hover .timeline-dot { fill: var(--navy); stroke-width: 2; }
+.span-detail-panel { margin-top: 18px; padding: 22px 24px; border: 1px solid var(--line); border-left: 3px solid var(--coral); background: #fff; }
+.span-detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.span-detail-head h3 { margin-top: 7px; color: var(--navy); font-size: 17px; }
+.span-detail-body { margin-top: 16px; }
+.span-detail-body.error { color: var(--coral); font-size: 12px; }
+.span-detail-meta { margin-bottom: 0; color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.span-detail-body .failure-box { margin-top: 12px; }
+.span-detail-body .tool-grid { margin-top: 14px; }
+.span-detail-link { margin-top: 16px; min-height: 36px; padding: 0 11px; font-size: 10px; }
 .timeline-marker { width: 8px; height: 8px; border-radius: 50%; background: var(--coral); }
 .timeline-error { color: var(--coral); font-size: 12px; }
 .trace-list, .replay-list { border-top: 1px solid var(--line); }
