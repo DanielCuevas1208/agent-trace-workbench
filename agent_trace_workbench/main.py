@@ -228,10 +228,12 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.get("/review", response_class=HTMLResponse)
     def review_page(
         request: Request,
-        limit: int = Query(default=50, ge=1, le=200),
+        limit: int = Query(default=50, ge=1, le=100),
+        offset: int = Query(default=0, ge=0),
         status: Literal["ok", "error"] | None = Query(default=None),
     ) -> Any:
-        runs = app.state.store.unreviewed_runs(limit, status=status)
+        runs = app.state.store.unreviewed_runs(limit, status=status, offset=offset)
+        review_total = app.state.store.unreviewed_count(status=status)
         totals = app.state.store.library_report()["totals"]
         return render_template(
             request,
@@ -240,6 +242,10 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 "runs": runs,
                 "totals": totals,
                 "limit": limit,
+                "offset": offset,
+                "review_total": review_total,
+                "has_previous": offset > 0,
+                "has_next": offset + len(runs) < review_total,
                 "status": status or "",
                 "failure_count": sum(run["status"] == "error" for run in runs),
                 "store": app.state.store.store_info(),
@@ -307,9 +313,10 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.get("/api/review")
     def api_review(
         limit: int = Query(default=20, ge=1, le=100),
+        offset: int = Query(default=0, ge=0),
         status: Literal["ok", "error"] | None = Query(default=None),
     ) -> list[dict[str, Any]]:
-        return app.state.store.unreviewed_runs(limit, status=status)
+        return app.state.store.unreviewed_runs(limit, status=status, offset=offset)
 
     @app.post("/api/review/labels")
     def api_bulk_label(payload: BulkLabelRequest) -> dict[str, Any]:

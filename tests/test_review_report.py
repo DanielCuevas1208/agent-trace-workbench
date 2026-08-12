@@ -529,3 +529,45 @@ def test_report_page_shows_csv_download_link(tmp_path, baseline, candidate):
     page = client.get("/report").text
 
     assert "/api/report?format=csv" in page
+
+
+def test_store_review_queue_supports_offset_and_complete_counts(tmp_path, baseline, candidate):
+    store = TraceStore(tmp_path / "review-pages.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+
+    assert store.unreviewed_count() == 2
+    assert store.unreviewed_count(status="error") == 1
+    assert [run["run_id"] for run in store.unreviewed_runs(1, offset=1)] == [
+        "run-baseline-001"
+    ]
+    assert store.unreviewed_run_ids() == [
+        "run-candidate-001",
+        "run-baseline-001",
+    ]
+    with pytest.raises(ValueError, match="offset"):
+        store.unreviewed_runs(offset=-1)
+
+
+def test_api_review_supports_offset_and_validates_it(tmp_path, baseline, candidate):
+    client = TestClient(create_app(tmp_path / "review-pages-api.db"))
+    client.post("/api/traces", json=baseline.as_jsonable())
+    client.post("/api/traces", json=candidate.as_jsonable())
+
+    response = client.get("/api/review", params={"limit": 1, "offset": 1})
+
+    assert response.status_code == 200
+    assert [run["run_id"] for run in response.json()] == ["run-baseline-001"]
+    assert client.get("/api/review", params={"offset": -1}).status_code == 422
+
+
+def test_review_page_shows_pagination_context(tmp_path, baseline, candidate):
+    client = TestClient(create_app(tmp_path / "review-pages-web.db"))
+    client.post("/api/traces", json=baseline.as_jsonable())
+    client.post("/api/traces", json=candidate.as_jsonable())
+
+    page = client.get("/review", params={"limit": 1}).text
+
+    assert "shown of 2" in page
+    assert "Rows 1&ndash;1 of 2" in page
+    assert ">Next<" in page

@@ -189,6 +189,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .review-evidence strong { color: var(--coral); font: 800 9px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }
 .review-evidence span { overflow: hidden; max-width: 300px; color: var(--navy); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .review-evidence small, .review-clear { color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.review-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin: 18px 0 14px; }
+.review-page-note { color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .04em; text-transform: uppercase; }
 .review-section { padding-top: 48px; }
 .cleanup-section { padding-top: 48px; }
 .cleanup-section-last { padding-bottom: 88px; }

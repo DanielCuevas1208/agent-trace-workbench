@@ -8,7 +8,7 @@
         <p class="hero-copy">Failed runs appear first. Each row shows its first failed span. Label a run after you inspect it.</p>
     </div>
     <div class="detail-actions">
-        <a class="button button-quiet" href="/api/review?limit={{ limit }}{% if status %}&amp;status={{ status }}{% endif %}">JSON</a>
+        <a class="button button-quiet" href="/api/review?limit={{ limit }}&amp;offset={{ offset }}{% if status %}&amp;status={{ status }}{% endif %}">JSON</a>
         <a class="button button-primary" href="/report">Library report <span aria-hidden="true">&#8594;</span></a>
     </div>
 </section>
@@ -18,12 +18,19 @@
     <div class="metric-card"><span class="metric-label">Unlabeled total</span><strong>{{ totals.unlabeled_runs }}</strong><span class="metric-note">across the library</span></div>
 </section>
 <section class="section-block review-section">
-    <div class="section-heading"><div><div class="eyebrow">REVIEW QUEUE</div><h2>{% if status == 'error' %}Failed{% elif status == 'ok' %}Healthy{% else %}Unlabeled{% endif %} runs</h2></div><span class="section-meta">{{ runs|length }} shown &middot; failures first</span></div>
+    <div class="section-heading"><div><div class="eyebrow">REVIEW QUEUE</div><h2>{% if status == 'error' %}Failed{% elif status == 'ok' %}Healthy{% else %}Unlabeled{% endif %} runs</h2></div><span class="section-meta">{{ runs|length }} shown of {{ review_total }} &middot; failures first</span></div>
     <div class="state-filter" aria-label="Review status filter">
         <a class="chip{% if not status %} chip-active{% endif %}" href="/review?limit={{ limit }}">All</a>
         <a class="chip{% if status == 'error' %} chip-active{% endif %}" href="/review?limit={{ limit }}&amp;status=error">Failures</a>
         <a class="chip{% if status == 'ok' %} chip-active{% endif %}" href="/review?limit={{ limit }}&amp;status=ok">Healthy</a>
     </div>
+    {% if has_previous or has_next %}
+    <div class="review-pagination">
+        {% if has_previous %}<a class="button button-quiet" href="/review?limit={{ limit }}&amp;offset={{ [offset - limit, 0]|max }}{% if status %}&amp;status={{ status }}{% endif %}">Previous</a>{% endif %}
+        <span class="review-page-note">Rows {{ offset + 1 }}&ndash;{{ offset + runs|length }} of {{ review_total }}</span>
+        {% if has_next %}<a class="button button-quiet" href="/review?limit={{ limit }}&amp;offset={{ offset + limit }}{% if status %}&amp;status={{ status }}{% endif %}">Next</a>{% endif %}
+    </div>
+    {% endif %}
     {% if runs %}
     <form id="bulk-label-form" class="bulk-label" aria-label="Apply one label to the selected runs">
         <input id="bulk-label-input" name="label" maxlength="80" placeholder="Label, e.g. triaged" aria-label="Label to apply">

@@ -4,6 +4,21 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.13.0 - 2026-08-12
+
+### Added
+
+- Stable offset pagination for the review page and review API.
+- Review counts for the active status filter.
+- Complete filtered run ID lookup for bulk labeling.
+- Previous and next controls for larger local review queues.
+- Deterministic tests for pagination, counts, complete labeling targets, and validation.
+
+### Changed
+
+- Version numbers moved to 1.13.0.
+- Review totals now distinguish the visible page from the full queue.
+
 ## 1.12.0 - 2026-08-04
 
 ### Added

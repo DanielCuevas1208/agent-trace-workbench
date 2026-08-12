@@ -34,6 +34,8 @@ Release 1.11 adds ordered failed-span summaries to each day drill-down card and 
 
 Release 1.12 adds a failure-first review queue. Filter unlabeled runs by status and read failed-span context before opening a run.
 
+Release 1.13 adds review queue pagination and coverage counts. Bulk labels now cover every run in the active filter.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -76,7 +78,7 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 - `models.py` defines the portable trace contract.
 - `handlers.py` loads local handler config and applies side-effect guards.
-- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It computes the review list, bulk labels, and the library report. It computes the failure trend, status breakdown, agent overlay, and run error timeline. It lists one day with ordered error summaries and enforces the retention cutoff. It returns the full record for one span. A cleanup log records each scheduled sweep.
+- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It computes the review list, stable pages, queue counts, complete bulk-label targets, and the library report. It computes the failure trend, status breakdown, agent overlay, and run error timeline. It lists one day with ordered error summaries and enforces the retention cutoff. It returns the full record for one span. A cleanup log records each scheduled sweep.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
@@ -1177,6 +1179,15 @@ curl.exe "http://127.0.0.1:8000/api/review?status=error"
 
 The API and CLI return the same run summary. The summary adds an `error_summary` list for failed spans.
 
+Read a later page with the CLI or API.
+
+```powershell
+python -m agent_trace_workbench.cli review --limit 20 --offset 20
+curl.exe "http://127.0.0.1:8000/api/review?limit=20&offset=20"
+```
+
+The review page shows visible rows and the full filtered count. Use Previous or Next to move through the queue.
+
 ## Bulk labeling
 
 Apply one label to several runs at once.
@@ -1185,7 +1196,7 @@ Apply one label to several runs at once.
 python -m agent_trace_workbench.cli review --label triaged
 ```
 
-The command labels every unreviewed run.
+The command labels every unreviewed run. Add `--status error` to label only failed runs.
 
 ```json
 {
@@ -1201,6 +1212,8 @@ python -m agent_trace_workbench.cli review --label golden --run-id run-baseline-
 ```
 
 The review page offers the same action. Check the runs you reviewed, type a label, and apply it. The labeled runs leave the list.
+
+The CLI bulk action uses the full filtered queue. It does not stop at the display limit.
 
 The JSON API accepts a batch.
 
@@ -1520,7 +1533,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 365 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 368 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -1536,7 +1549,11 @@ Labels and notes stay local to the workbench database. Portable export files do 
 
 The review list shows runs with an empty label. A blank label counts as unreviewed.
 
-The review queue filters by recorded run status. It prioritizes failures, then older runs.
+The review queue filters by recorded run status. It prioritizes failures, then older runs. Pages use a stable offset and run ID order.
+
+The review page count covers the full filtered queue. The table count covers the current page.
+
+The CLI bulk action labels every matching run. The display limit does not limit that action.
 
 Bulk labeling sets the label only. It leaves the notes on each run untouched.
 
@@ -1665,7 +1682,8 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 1.10 complete: add a span detail panel to the run-level error timeline.
 - Release 1.11 complete: add ordered failed-span summaries to day cards, API output, CLI output, and CSV export.
 - Release 1.12 complete: add a failure-first review queue with status filters and failed-span context.
-- Next: choose the next bounded evidence-review slice.
+- Release 1.13 complete: add review pagination, full filtered bulk labeling, and queue coverage counts.
+- Next: add a bounded evidence-review slice with explicit reviewer decisions.
 
 ## Repository map
 
