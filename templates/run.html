@@ -9,7 +9,7 @@
         <p class="hero-copy">{{ run.run_id }} · {{ run.agent_version }} · {{ run.source_name }}</p>
     </div>
     <div class="detail-actions">
-        {% if run.label %}<span class="badge badge-label">{{ run.label }}</span>{% endif %}
+        {% if run.label %}<span class="badge badge-label">{{ run.label }}</span>{% endif %}{% if run.decision != "pending" %}<span class="review-decision review-decision-{{ run.decision }}">{{ decision_labels[run.decision] }}</span>{% endif %}
         <span class="badge badge-{{ run.status }}">{{ run.status }}</span>
         <div class="export-actions" aria-label="Export run">
             <a class="button button-quiet" href="/api/runs/{{ run.run_id }}/export?format=json" download>JSON</a>
@@ -76,12 +76,19 @@
 </section>
 <section class="panel annotation-panel">
     <div class="panel-heading">
-        <div><div class="eyebrow">REVIEW ANNOTATIONS</div><h2>Label and notes</h2></div>
+        <div><div class="eyebrow">REVIEW ANNOTATIONS</div><h2>Decision, label, and notes</h2></div>
         <span class="panel-index">LOCAL</span>
     </div>
-    <p>Attach a short label and review notes to this run. They stay in the local database and survive re-ingestion.</p>
-    {% if run.note %}<div class="review-note"><strong>Note</strong><span>{{ run.note }}</span></div>{% endif %}
+    <p>Record a decision, label, and notes. They stay in the local database and survive re-ingestion.</p>
+    {% if run.note %}<div class="review-note"><strong>Note</strong><span>{{ run.note }}</span></div>{% endif %}{% if run.decision_at %}<div class="review-note review-decision-note"><strong>Decision recorded</strong><span>{{ decision_labels[run.decision] }} · {{ run.decision_at }}</span></div>{% endif %}
     <form id="annotations-form" data-run="{{ run.run_id }}">
+        <label for="annotation-decision">Decision</label>
+        <select id="annotation-decision" name="decision">
+            <option value="pending"{% if run.decision == "pending" %} selected{% endif %}>Pending</option>
+            <option value="accepted"{% if run.decision == "accepted" %} selected{% endif %}>Accepted</option>
+            <option value="rejected"{% if run.decision == "rejected" %} selected{% endif %}>Rejected</option>
+            <option value="needs_follow_up"{% if run.decision == "needs_follow_up" %} selected{% endif %}>Needs follow-up</option>
+        </select>
         <label for="annotation-label">Label</label>
         <input id="annotation-label" name="label" maxlength="80" value="{{ run.label or '' }}" placeholder="e.g. v1, regression, release candidate">
         <label for="annotation-note">Note</label>

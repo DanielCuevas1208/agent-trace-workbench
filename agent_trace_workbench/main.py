@@ -32,6 +32,7 @@ from .export import (
 from .handlers import ReplayPolicy, load_handler_config
 from .models import (
     BulkLabelRequest,
+    BulkReviewDecisionRequest,
     CollectorExportRequest,
     ComparisonCreate,
     RetentionRequest,
@@ -43,6 +44,13 @@ from .replay import ReplayEngine, default_replay_engine
 from .scheduler import CleanupScheduler
 from .storage import TraceStore
 from .telemetry import configure_telemetry, traces_url
+
+_REVIEW_DECISION_LABELS = {
+    "pending": "Pending",
+    "accepted": "Accepted",
+    "rejected": "Rejected",
+    "needs_follow_up": "Needs follow-up",
+}
 
 ROOT = Path(__file__).resolve().parent.parent
 try:
@@ -180,6 +188,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             {
                 "run": run,
                 "filters": filter_set,
+                "decision_labels": _REVIEW_DECISION_LABELS,
                 "timeline": _error_timeline_chart(timeline) if timeline else None,
                 "timeline_csv_link": f"/api/runs/{run_id}/timeline?format=csv",
                 "store": app.state.store.store_info(),
@@ -248,6 +257,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 "has_next": offset + len(runs) < review_total,
                 "status": status or "",
                 "failure_count": sum(run["status"] == "error" for run in runs),
+                "decision_labels": _REVIEW_DECISION_LABELS,
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
                 "scheduler": _scheduler_status(app),
@@ -322,6 +332,11 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     def api_bulk_label(payload: BulkLabelRequest) -> dict[str, Any]:
         updated = app.state.store.bulk_set_labels(payload.run_ids, payload.label)
         return {"label": payload.label, "run_ids": payload.run_ids, "updated": updated}
+
+    @app.post("/api/review/decisions")
+    def api_bulk_decision(payload: BulkReviewDecisionRequest) -> dict[str, Any]:
+        updated = app.state.store.bulk_set_decisions(payload.run_ids, payload.decision)
+        return {"decision": payload.decision, "run_ids": payload.run_ids, "updated": updated}
 
     @app.post("/api/prune")
     def api_prune(payload: RetentionRequest) -> dict[str, Any]:
@@ -661,7 +676,10 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.patch("/api/runs/{run_id}/annotations")
     def api_update_annotations(run_id: str, payload: RunAnnotations) -> dict[str, Any]:
         run = app.state.store.update_annotations(
-            run_id, label=payload.label, note=payload.note
+            run_id,
+            label=payload.label,
+            note=payload.note,
+            decision=payload.decision,
         )
         if run is None:
             raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")

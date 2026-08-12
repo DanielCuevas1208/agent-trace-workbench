@@ -36,11 +36,15 @@ Release 1.12 adds a failure-first review queue. Filter unlabeled runs by status 
 
 Release 1.13 adds review queue pagination and coverage counts. Bulk labels now cover every run in the active filter.
 
+Release 1.14 adds explicit review decisions. Record accepted, rejected, or follow-up evidence with a local timestamp.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
 
 This workbench makes each boundary visible. It shows inputs, outputs, timing, attributes, and errors in one local record. The error timeline marks where each failure happened.
+
+The review queue turns inspection into a clear local decision. Each decision keeps its timestamp.
 
 The design supports repeatable review. A replay runs a registered local handler when available. It uses the recorded result when no handler exists.
 
@@ -56,7 +60,7 @@ Import the OpenTelemetry JSON format to bring agent traces in. Export runs to po
   local JSON trace         OTLP JSON file
         |                        |
         v                        v
- Pydantic contract <------> SQLite trace store ---> FastAPI views and JSON API
+ Pydantic contract <------> SQLite trace store ---> FastAPI views and JSON API ---> review decisions
         ^                        |
         |                        +---------+---------+
  directory watcher               v                   v
@@ -78,20 +82,20 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 - `models.py` defines the portable trace contract.
 - `handlers.py` loads local handler config and applies side-effect guards.
-- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local annotations. It computes the review list, stable pages, queue counts, complete bulk-label targets, and the library report. It computes the failure trend, status breakdown, agent overlay, and run error timeline. It lists one day with ordered error summaries and enforces the retention cutoff. It returns the full record for one span. A cleanup log records each scheduled sweep.
+- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local review context. It computes the review list, stable pages, queue counts, decisions, and bulk actions. It computes the failure trend, status breakdown, agent overlay, and run error timeline. It lists one day with ordered error summaries and enforces the retention cutoff. It returns the full record for one span. A cleanup log records each scheduled sweep.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
 - `compare.py` aligns tool calls by recorded position and reports field-level deltas.
 - `export.py` renders comparisons, run tool calls, library reports, failure trends, error timelines, and day run lists as CSV files.
 - `collector.py` posts recorded runs to a local collector over OTLP HTTP JSON.
-- `main.py` serves the interface and the JSON API. It also shapes the dashboard charts and the run error timeline.
+- `main.py` serves the interface and the JSON API. It also shapes review actions, dashboard charts, and the run error timeline.
 - `scheduler.py` runs server-side retention sweeps on an interval.
 - `telemetry.py` creates OpenTelemetry spans and exports them locally.
 
 The OpenTelemetry integration stays local by default. Set `ATW_OTEL_CONSOLE=1` to print workbench spans. Set `ATW_OTEL_COLLECTOR_ENDPOINT` to export them to a local collector.
 
-Each stored run keeps a local label and note. They form the review context for long-lived evidence. The review queue orders failures first and includes failed-span summaries. The server can sweep old evidence on an interval. The scheduler stays off unless you set `ATW_CLEANUP_EVERY_SECONDS`.
+Each stored run keeps a local decision, timestamp, label, and note. They form the review context for long-lived evidence. The queue orders failures first and includes failed-span summaries. The server can sweep old evidence on an interval. The scheduler stays off unless you set `ATW_CLEANUP_EVERY_SECONDS`.
 
 ## Setup
 
@@ -1099,12 +1103,12 @@ python -m agent_trace_workbench.cli replay run-candidate-001 --config fixtures/h
 
 The reservation handler now runs. It returns the fixed confirmation. The guard clears, and the result no longer matches.
 
-## Run labels and notes
+## Review context
 
-Attach a label and notes to a run for later review. The data stays beside the run in the local database.
+Attach a decision, label, and notes to a run. The data stays beside the run in the local database.
 
 ```powershell
-python -m agent_trace_workbench.cli annotate run-baseline-001 --label golden --note "reference run for the v2 regression"
+python -m agent_trace_workbench.cli annotate run-baseline-001 --decision accepted --label golden --note "reference run for the v2 regression"
 ```
 
 The command prints the stored values.
@@ -1112,6 +1116,8 @@ The command prints the stored values.
 ```json
 {
   "run_id": "run-baseline-001",
+  "decision": "accepted",
+  "decision_at": "2026-08-12T16:00:00+00:00",
   "label": "golden",
   "note": "reference run for the v2 regression"
 }
@@ -1123,29 +1129,29 @@ Clear both fields with `--clear`.
 python -m agent_trace_workbench.cli annotate run-baseline-001 --clear
 ```
 
-The run page shows a label badge and an editable notes box. The dashboard shows the label on each run card.
+The run page shows a decision badge, label, and editable notes box. The dashboard shows the label on each run card.
 
 Use the JSON API for scripts.
 
 ```powershell
 curl.exe -X PATCH http://127.0.0.1:8000/api/runs/run-baseline-001/annotations `
   -H "content-type: application/json" `
-  -d "{\"label\": \"golden\", \"note\": \"reference run\"}"
+  -d "{\"decision\": \"accepted\", \"label\": \"golden\", \"note\": \"reference run\"}"
 ```
 
-A label is at most 80 characters. A note is at most 2000 characters. An empty value clears one field. Search matches labels, so `atw search golden` finds the run.
+A decision is pending, accepted, rejected, or needs follow-up. A label is at most 80 characters. A note is at most 2000 characters. Search matches labels.
 
-Re-ingesting a trace keeps its label and note. The annotation stays local and never enters the portable trace contract.
+Re-ingesting a trace keeps its decision, timestamp, label, and note. Review context stays local and never enters the portable trace contract.
 
 ## Review list
 
-Find runs that still need a review label.
+Find runs that still need a review decision.
 
 ```powershell
 python -m agent_trace_workbench.cli review
 ```
 
-The command lists every unlabeled run.
+The command lists every unlabeled run with a pending decision.
 
 ```json
 [
@@ -1158,7 +1164,7 @@ The command lists every unlabeled run.
 ]
 ```
 
-Label a run on its page. It leaves the review list.
+Record a decision on the run page. It leaves the review list.
 
 The JSON API accepts the same query.
 
@@ -1166,7 +1172,7 @@ The JSON API accepts the same query.
 curl.exe "http://127.0.0.1:8000/api/review"
 ```
 
-The review page links each run to its annotation form.
+The review page links each run to its decision form. It also keeps the label action.
 
 The queue shows failed runs first. It sorts each group by start time. Each failed run includes its ordered failed-span summary.
 
@@ -1187,6 +1193,34 @@ curl.exe "http://127.0.0.1:8000/api/review?limit=20&offset=20"
 ```
 
 The review page shows visible rows and the full filtered count. Use Previous or Next to move through the queue.
+
+## Bulk decisions
+
+Record one decision for several runs.
+
+```powershell
+python -m agent_trace_workbench.cli review --decision needs_follow_up
+```
+
+The command updates every pending run in the active status filter.
+
+Record selected runs only.
+
+```powershell
+python -m agent_trace_workbench.cli review --decision accepted --run-id run-baseline-001
+```
+
+The JSON API accepts the same action.
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/api/review/decisions `
+  -H "content-type: application/json" `
+  -d "{\"run_ids\": [\"run-baseline-001\"], \"decision\": \"accepted\"}"
+```
+
+Accepted and rejected decisions leave the queue. A pending decision returns a run to the queue.
+
+The timestamp records when the local store accepted the decision.
 
 ## Bulk labeling
 
@@ -1522,7 +1556,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, and annotations. It covers bulk labels, export, review, reports, retention, and scheduled cleanup. It covers the CLI, the API, collector export, and the server scheduler. It covers the dashboard trend, including the agent filter, window selector, day drill-down, status breakdown, overlay, and the run error timeline. It covers the span detail panel on the error timeline. The CSV exports have their own tests.
+The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, and annotations. It covers decisions, bulk labels, export, review, reports, retention, and scheduled cleanup. It covers the CLI, the API, collector export, and the server scheduler. It covers the dashboard trend, including the agent filter, window selector, day drill-down, status breakdown, overlay, and the run error timeline. It covers the span detail panel on the error timeline. The CSV exports have their own tests.
 
 Run the checks with these commands.
 
@@ -1533,7 +1567,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 368 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 374 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
 
 ## Limitations
 
@@ -1547,15 +1581,15 @@ Search uses SQL `LIKE` matching. It does not rank results by relevance.
 
 Labels and notes stay local to the workbench database. Portable export files do not carry them.
 
-The review list shows runs with an empty label. A blank label counts as unreviewed.
+The review list shows runs with an empty label and a pending decision. A blank label and pending decision count as unreviewed.
 
 The review queue filters by recorded run status. It prioritizes failures, then older runs. Pages use a stable offset and run ID order.
 
-The review page count covers the full filtered queue. The table count covers the current page.
+The review page count covers the full filtered queue. The table count covers the current page. A decision action records one of three outcomes.
 
 The CLI bulk action labels every matching run. The display limit does not limit that action.
 
-Bulk labeling sets the label only. It leaves the notes on each run untouched.
+Bulk labeling sets the label only. Bulk decisions set the decision and timestamp. Both leave notes untouched.
 
 Retention counts from the last ingestion time. A re-ingest resets the clock.
 
@@ -1564,6 +1598,8 @@ A label protects a run from age-based cleanup. Remove the label to make the run 
 A prune deletes the run, its spans, and any saved comparison that references it. Export important runs before a prune.
 
 The cleanup page deletes every run in the preview table. It does not support per-row selection.
+
+The workbench does not identify a reviewer. Decision timestamps do not prove who made a decision.
 
 A scheduled cleanup runs only while the cleanup command runs. Stop the process to pause the schedule.
 
@@ -1683,13 +1719,14 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 1.11 complete: add ordered failed-span summaries to day cards, API output, CLI output, and CSV export.
 - Release 1.12 complete: add a failure-first review queue with status filters and failed-span context.
 - Release 1.13 complete: add review pagination, full filtered bulk labeling, and queue coverage counts.
-- Next: add a bounded evidence-review slice with explicit reviewer decisions.
+- Release 1.14 complete: add explicit review decisions, local decision timestamps, and bulk decision actions.
+- Next: add an optional local history for changed review decisions.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline, candidate, and second-agent traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, and export. It covers review, reports, retention cleanup, scheduled cleanup, and the server scheduler. It covers the failure trend, including the agent filter, window selector, day drill-down, run error summaries, status breakdown, overlay, and the run error timeline. It covers the span detail panel on the error timeline.
+`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, and export. It covers review, reports, retention cleanup, scheduled cleanup, and the server scheduler. It covers the failure trend, including the agent filter, window selector, day drill-down, run error summaries, status breakdown, overlay, and the run error timeline. It covers explicit review decisions and migration behavior. It covers the span detail panel on the error timeline.
 
 `static/` and `templates/` contain the presentation layer.
 

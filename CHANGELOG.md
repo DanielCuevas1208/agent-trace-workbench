@@ -4,6 +4,20 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.14.0 - 2026-08-12
+
+### Added
+
+- Explicit local review decisions: accepted, rejected, or needs follow-up.
+- Decision timestamps that survive trace re-ingestion.
+- Bulk decision actions in the review page, API, and CLI.
+- Migration coverage for databases from earlier releases.
+
+### Changed
+
+- The review queue now requires a pending decision and an empty label.
+- Version numbers moved to 1.14.0.
+
 ## 1.13.0 - 2026-08-12
 
 ### Added
