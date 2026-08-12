@@ -5,9 +5,9 @@ It enables the WAL journal so readers keep a committed snapshot while a
 writer is active. It sets a busy timeout so writers wait for the write
 lock instead of failing on first contact.
 
-The store also keeps local review annotations beside each run. A label
-and a note stay in the runs table. They survive re-ingestion and never
-enter the portable trace contract. Each run keeps the folder that
+The store also keeps local review context beside each run. A label, note,
+and explicit decision stay in the runs table. They survive re-ingestion and
+never enter the portable trace contract. Each run keeps the folder that
 produced it, so the report layer can group evidence by source directory.
 A retention cutoff reuses the same table: a prune deletes runs last
 ingested before a cutoff, and a label protects a run from that cleanup.
@@ -35,10 +35,13 @@ _SYNCHRONOUS_LABELS = {0: "off", 1: "normal", 2: "full", 3: "extra"}
 _LOCK_ERROR_HINT = "database is locked"
 
 _ANNOTATION_MAX = {"label": 80, "note": 2000}
+_REVIEW_DECISIONS = {"pending", "accepted", "rejected", "needs_follow_up"}
 _EXTRA_COLUMNS = {
     "label": "label TEXT NOT NULL DEFAULT ''",
     "note": "note TEXT NOT NULL DEFAULT ''",
     "source_dir": "source_dir TEXT NOT NULL DEFAULT ''",
+    "decision": "decision TEXT NOT NULL DEFAULT 'pending'",
+    "decision_at": "decision_at TEXT",
 }
 _EMPTY_FOLDER = "api"
 
@@ -58,7 +61,9 @@ CREATE TABLE IF NOT EXISTS runs (
     raw_json TEXT NOT NULL,
     ingested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     label TEXT NOT NULL DEFAULT '',
-    note TEXT NOT NULL DEFAULT ''
+    note TEXT NOT NULL DEFAULT '',
+    decision TEXT NOT NULL DEFAULT 'pending',
+    decision_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS spans (
@@ -142,12 +147,12 @@ class TraceStore:
             self._ensure_extra_columns()
 
     def _ensure_extra_columns(self) -> None:
-        """Add local columns to runs tables created before release 1.0.
+        """Add local columns to runs tables created by earlier releases.
 
         A database from an earlier release has a runs table without the
-        label, note, and source directory columns. This migration extends
-        that table in place so existing evidence stays readable. Two
-        processes may run the migration at once, so a duplicate column
+        label, note, source directory, and decision columns. This migration
+        extends that table in place so existing evidence stays readable.
+        Two processes may run the migration at once, so a duplicate column
         error counts as done.
         """
 
@@ -550,7 +555,7 @@ class TraceStore:
         status: str | None = None,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """Return unlabeled runs with failure context for review.
+        """Return unlabeled, undecided runs with failure context for review.
 
         Failed runs come first. Within each status, older runs come first.
         Pass status to show only ok or error runs.
@@ -567,7 +572,7 @@ class TraceStore:
             attributes["review.status"] = status
         with traced_operation("storage.unreviewed_runs", attributes):
             with self._connect() as connection:
-                query = "SELECT * FROM runs WHERE label = ''"
+                query = "SELECT * FROM runs WHERE label = '' AND decision = 'pending'"
                 params: list[Any] = []
                 if status is not None:
                     query += " AND status = ?"
@@ -590,8 +595,8 @@ class TraceStore:
             "storage.unreviewed_count", {"review.status": status or "all"}
         ):
             with self._connect() as connection:
-                query = "SELECT COUNT(*) AS count FROM runs WHERE label = ?"
-                params: list[Any] = [""]
+                query = "SELECT COUNT(*) AS count FROM runs WHERE label = ? AND decision = ?"
+                params: list[Any] = ["", "pending"]
                 if status is not None:
                     query += " AND status = ?"
                     params.append(status)
@@ -599,7 +604,7 @@ class TraceStore:
                 return int(row["count"])
 
     def unreviewed_run_ids(self, *, status: str | None = None) -> list[str]:
-        """Return every unlabeled run ID for a bulk review action."""
+        """Return every unlabeled, undecided run ID for a bulk review action."""
 
         if status not in {None, "ok", "error"}:
             raise ValueError("status must be 'ok', 'error', or None")
@@ -607,8 +612,8 @@ class TraceStore:
             "storage.unreviewed_run_ids", {"review.status": status or "all"}
         ):
             with self._connect() as connection:
-                query = "SELECT run_id FROM runs WHERE label = ?"
-                params: list[Any] = [""]
+                query = "SELECT run_id FROM runs WHERE label = ? AND decision = ?"
+                params: list[Any] = ["", "pending"]
                 if status is not None:
                     query += " AND status = ?"
                     params.append(status)
@@ -1102,19 +1107,24 @@ class TraceStore:
         *,
         label: str | None = None,
         note: str | None = None,
+        decision: str | None = None,
     ) -> dict[str, Any] | None:
-        """Set the local label and review notes for one run.
+        """Set the local label, notes, and decision for one run.
 
         A None value leaves the current annotation untouched. An empty
-        string clears it. The method returns the updated run, or None when
+        string clears a label or note. The pending decision clears it.
+        The method returns the updated run, or None when
         the run does not exist.
         """
 
-        if label is None and note is None:
-            raise ValueError("Provide a label, a note, or both")
+        if label is None and note is None and decision is None:
+            raise ValueError("Provide a label, a note, a decision, or any combination")
         for name, value in (("label", label), ("note", note)):
             if value is not None and len(value) > _ANNOTATION_MAX[name]:
                 raise ValueError(f"{name} must be at most {_ANNOTATION_MAX[name]} characters")
+        if decision is not None:
+            _validate_review_decision(decision)
+        decision_at = None if decision in {None, "pending"} else _now_utc().isoformat()
         with traced_operation("storage.update_annotations", {"run.id": run_id}):
 
             def _update() -> bool:
@@ -1125,6 +1135,9 @@ class TraceStore:
                         if value is not None:
                             sets.append(f"{column} = ?")
                             values.append(value)
+                    if decision is not None:
+                        sets.extend(["decision = ?", "decision_at = ?"])
+                        values.extend([decision, decision_at])
                     values.append(run_id)
                     cursor = connection.execute(
                         f"UPDATE runs SET {', '.join(sets)} WHERE run_id = ?", values
@@ -1157,6 +1170,30 @@ class TraceStore:
                     cursor = connection.execute(
                         f"UPDATE runs SET label = ? WHERE run_id IN ({placeholders})",
                         [label, *unique_ids],
+                    )
+                    return cursor.rowcount
+
+            return _retry_on_lock(_update)
+
+    def bulk_set_decisions(self, run_ids: list[str], decision: str) -> int:
+        """Set one explicit review decision on several runs."""
+
+        _validate_review_decision(decision)
+        unique_ids = list(dict.fromkeys(run_ids))
+        if not unique_ids:
+            return 0
+        decision_at = None if decision == "pending" else _now_utc().isoformat()
+        with traced_operation(
+            "storage.bulk_set_decisions", {"decision.count": len(unique_ids)}
+        ):
+
+            def _update() -> int:
+                with self._connect() as connection:
+                    placeholders = ", ".join("?" * len(unique_ids))
+                    cursor = connection.execute(
+                        "UPDATE runs SET decision = ?, decision_at = ? "
+                        f"WHERE run_id IN ({placeholders})",
+                        [decision, decision_at, *unique_ids],
                     )
                     return cursor.rowcount
 
@@ -1226,6 +1263,14 @@ class TraceStore:
                 return cursor.rowcount > 0
 
             return _retry_on_lock(_delete)
+
+
+def _validate_review_decision(decision: str) -> None:
+    """Reject decision values outside the local review vocabulary."""
+
+    if decision not in _REVIEW_DECISIONS:
+        allowed = ", ".join(sorted(_REVIEW_DECISIONS))
+        raise ValueError(f"decision must be one of: {allowed}")
 
 
 def _retry_on_lock(operation: Callable[[], _T], *, attempts: int = 3) -> _T:
@@ -1409,6 +1454,8 @@ def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         "ingested_at": row["ingested_at"],
         "label": row["label"],
         "note": row["note"],
+        "decision": row["decision"],
+        "decision_at": row["decision_at"],
     }
 
 

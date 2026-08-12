@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 SpanKind = Literal["agent", "tool", "llm", "internal"]
 SpanStatus = Literal["ok", "error", "unset"]
 ToolOutcome = Literal["success", "failure", "unknown"]
+ReviewDecision = Literal["pending", "accepted", "rejected", "needs_follow_up"]
 
 
 class ToolCall(BaseModel):
@@ -154,21 +155,23 @@ class CollectorExportRequest(BaseModel):
 
 
 class RunAnnotations(BaseModel):
-    """Request body for updating the local label and notes on one run.
+    """Request body for updating local review context on one run.
 
     A missing field leaves the current value untouched. An empty string
-    clears it. The document requires at least one field.
+    clears a label or note. The pending decision clears a decision.
+    The document requires at least one field.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     label: str | None = Field(default=None, max_length=80)
     note: str | None = Field(default=None, max_length=2000)
+    decision: ReviewDecision | None = None
 
     @model_validator(mode="after")
     def validate_present(self) -> RunAnnotations:
-        if self.label is None and self.note is None:
-            raise ValueError("Provide a label, a note, or both")
+        if self.label is None and self.note is None and self.decision is None:
+            raise ValueError("Provide a label, a note, a decision, or any combination")
         return self
 
 
@@ -194,6 +197,27 @@ class BulkLabelRequest(BaseModel):
         self.run_ids = list(dict.fromkeys(stripped))
         if len(self.run_ids) > 100:
             raise ValueError("Label at most 100 runs at once")
+        return self
+
+
+class BulkReviewDecisionRequest(BaseModel):
+    """Request body for applying one explicit decision to review runs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_ids: list[str]
+    decision: ReviewDecision
+
+    @model_validator(mode="after")
+    def validate_run_ids(self) -> BulkReviewDecisionRequest:
+        stripped = [run_id.strip() for run_id in self.run_ids]
+        if not stripped:
+            raise ValueError("Provide at least one run ID")
+        if any(not run_id for run_id in stripped):
+            raise ValueError("Run IDs must not be empty")
+        self.run_ids = list(dict.fromkeys(stripped))
+        if len(self.run_ids) > 100:
+            raise ValueError("Decide at most 100 runs at once")
         return self
 
 

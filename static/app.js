@@ -119,11 +119,48 @@
                         body: JSON.stringify({
                             label: String(data.get("label") || ""),
                             note: String(data.get("note") || ""),
+                            decision: String(data.get("decision") || "pending"),
                         }),
                     },
                 );
                 if (!response.ok) throw new Error("Annotations could not be saved.");
                 status.textContent = "Saved.";
+                window.location.reload();
+            } catch (error) {
+                status.className = "form-status error";
+                status.textContent = error.message;
+            }
+        });
+    }
+
+    const selectedReviewRunIds = () => Array.from(
+        document.querySelectorAll(".run-check:checked"),
+        (box) => box.value,
+    );
+
+    const decisionForm = document.querySelector("#bulk-decision-form");
+    if (decisionForm) {
+        const status = document.querySelector("#bulk-decision-status");
+        decisionForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const runIds = selectedReviewRunIds();
+            if (runIds.length === 0) {
+                status.className = "form-status error";
+                status.textContent = "Select at least one run.";
+                return;
+            }
+            status.className = "form-status";
+            status.textContent = "Recording...";
+            try {
+                const decision = String(decisionForm.querySelector("[name=decision]").value);
+                const response = await fetch("/api/review/decisions", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ run_ids: runIds, decision }),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || "Decision could not be recorded.");
+                status.textContent = `Recorded ${result.updated} decision${result.updated === 1 ? "" : "s"}.`;
                 window.location.reload();
             } catch (error) {
                 status.className = "form-status error";
@@ -143,10 +180,7 @@
         });
         bulkForm.addEventListener("submit", async (event) => {
             event.preventDefault();
-            const runIds = Array.from(
-                document.querySelectorAll(".run-check:checked"),
-                (box) => box.value,
-            );
+            const runIds = selectedReviewRunIds();
             if (runIds.length === 0) {
                 status.className = "form-status error";
                 status.textContent = "Select at least one run.";

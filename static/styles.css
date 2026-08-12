@@ -105,15 +105,21 @@ select { min-height: 44px; padding: 0 12px; font-family: inherit; }
 .badge-error { color: var(--coral); background: rgba(217,95,79,.06); }
 .badge-unset { color: var(--muted); }
 .badge-label { color: var(--blue); border-color: var(--blue); background: rgba(44,111,159,.08); }
+.review-decision { display: inline-flex; padding: 5px 8px; border: 1px solid currentColor; font: 800 9px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .06em; text-transform: uppercase; }
+.review-decision-pending { color: var(--muted); background: rgba(91,105,116,.06); }
+.review-decision-accepted { color: var(--teal); background: rgba(30,139,132,.06); }
+.review-decision-rejected { color: var(--coral); background: rgba(217,95,79,.06); }
+.review-decision-needs_follow_up { color: var(--blue); background: rgba(44,111,159,.08); }
 .run-card h3 .badge-label { margin-left: 9px; vertical-align: 3px; }
 .annotation-panel { margin-top: 18px; }
 .annotation-panel p { max-width: 640px; }
-.annotation-panel input, .annotation-panel textarea { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); background: #fbfcfa; color: var(--ink); font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; outline: 0; }
+.annotation-panel input, .annotation-panel textarea, .annotation-panel select { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); background: #fbfcfa; color: var(--ink); font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; outline: 0; }
 .annotation-panel textarea { min-height: 108px; padding: 12px; resize: vertical; }
-.annotation-panel input:focus, .annotation-panel textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(44,111,159,.12); }
+.annotation-panel input:focus, .annotation-panel textarea:focus, .annotation-panel select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(44,111,159,.12); }
 .annotation-panel .form-row { margin-top: 16px; }
 .review-note { display: flex; flex-direction: column; gap: 5px; margin-top: 14px; padding: 13px; border-left: 3px solid var(--blue); background: rgba(44,111,159,.06); color: var(--navy); font-size: 13px; line-height: 1.55; }
 .review-note strong { font: 800 9px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .1em; text-transform: uppercase; }
+.review-decision-note { border-left-color: var(--teal); }
 .trace-section { padding-top: 62px; }
 .timeline-section { padding: 20px 0 30px; }
 .timeline-panel { padding: 24px 26px 20px; }
@@ -190,6 +196,11 @@ tbody tr:last-child td { border-bottom: 0; }
 .review-evidence span { overflow: hidden; max-width: 300px; color: var(--navy); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .review-evidence small, .review-clear { color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .review-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin: 18px 0 14px; }
+.review-actions { display: grid; gap: 10px; margin-bottom: 15px; }
+.bulk-review { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; padding: 13px; border: 1px solid var(--line); background: #fff; }
+.bulk-review label { margin: 0; color: var(--muted); font: 800 9px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.bulk-review select { min-height: 40px; padding: 0 12px; border: 1px solid var(--line); background: #fbfcfa; color: var(--ink); font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.bulk-review select:focus { border-color: var(--blue); outline: 0; box-shadow: 0 0 0 3px rgba(44,111,159,.12); }
 .review-page-note { color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .04em; text-transform: uppercase; }
 .review-section { padding-top: 48px; }
 .cleanup-section { padding-top: 48px; }

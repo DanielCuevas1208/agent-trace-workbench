@@ -315,6 +315,22 @@ def test_store_bulk_labels_selected_runs(tmp_path, baseline, candidate):
     assert store.unreviewed_runs() == []
 
 
+def test_store_bulk_decisions_dedupes_and_removes_queue_rows(tmp_path, baseline, candidate):
+    store = TraceStore(tmp_path / "bulk-decisions.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+
+    updated = store.bulk_set_decisions(
+        ["run-candidate-001", "run-candidate-001", "missing"], "rejected"
+    )
+
+    assert updated == 1
+    run = store.get_run("run-candidate-001")
+    assert run["decision"] == "rejected"
+    assert run["decision_at"]
+    assert [item["run_id"] for item in store.unreviewed_runs()] == ["run-baseline-001"]
+
+
 def test_store_bulk_labels_dedupes_and_skips_missing(tmp_path, baseline, candidate):
     store = TraceStore(tmp_path / "bulk.db")
     store.ingest(baseline, "baseline.json")
@@ -365,6 +381,32 @@ def test_api_bulk_labels_review_runs(tmp_path, baseline, candidate):
     assert response.status_code == 200
     assert response.json()["updated"] == 2
     assert client.get("/api/review").json() == []
+
+
+def test_api_bulk_decisions_updates_selected_runs(tmp_path, baseline, candidate):
+    client = TestClient(create_app(tmp_path / "api.db"))
+    client.post("/api/traces", json=baseline.as_jsonable())
+    client.post("/api/traces", json=candidate.as_jsonable())
+
+    response = client.post(
+        "/api/review/decisions",
+        json={"run_ids": ["run-candidate-001"], "decision": "accepted"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "decision": "accepted",
+        "run_ids": ["run-candidate-001"],
+        "updated": 1,
+    }
+    assert [run["run_id"] for run in client.get("/api/review").json()] == [
+        "run-baseline-001"
+    ]
+
+    assert client.post(
+        "/api/review/decisions",
+        json={"run_ids": [], "decision": "accepted"},
+    ).status_code == 422
 
 
 def test_api_bulk_label_clears_with_empty_label(tmp_path, baseline, candidate):
@@ -448,6 +490,31 @@ def test_cli_review_labels_every_unreviewed_run(tmp_path, baseline, candidate, m
     assert store.get_run("run-candidate-001")["label"] == "triaged"
 
 
+def test_cli_review_records_decision_for_pending_runs(
+    tmp_path, baseline, candidate, monkeypatch, capsys
+):
+    store = TraceStore(tmp_path / "cli-decisions.db")
+    store.ingest(baseline, "baseline.json")
+    store.ingest(candidate, "candidate.json")
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "atw",
+            "--db",
+            str(tmp_path / "cli-decisions.db"),
+            "review",
+            "--decision",
+            "needs_follow_up",
+        ],
+    )
+    main()
+
+    result = json.loads(capsys.readouterr().out)
+    assert result == {"decision": "needs_follow_up", "updated": 2}
+    assert store.unreviewed_runs() == []
+
+
 def test_cli_review_labels_specific_runs(tmp_path, baseline, candidate, monkeypatch, capsys):
     store = TraceStore(tmp_path / "cli.db")
     store.ingest(baseline, "baseline.json")
@@ -517,6 +584,8 @@ def test_review_page_shows_bulk_label_form(tmp_path, baseline, candidate):
     page = client.get("/review").text
 
     assert "bulk-label-form" in page
+    assert "bulk-decision-form" in page
+    assert "Accept evidence" in page
     assert "select-all" in page
     assert 'class="run-check"' in page
 

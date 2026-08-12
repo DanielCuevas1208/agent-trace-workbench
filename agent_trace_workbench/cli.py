@@ -127,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     comparisons.add_argument("--delete", default=None, help="Comparison ID to delete")
 
     review = subparsers.add_parser(
-        "review", help="List runs that still need a review label"
+        "review", help="List runs that still need a review decision"
     )
     review.add_argument("--limit", type=int, default=20)
     review.add_argument(
@@ -142,17 +142,24 @@ def build_parser() -> argparse.ArgumentParser:
         default="all",
         help="Show only healthy or failed unlabeled runs",
     )
-    review.add_argument(
+    review_actions = review.add_mutually_exclusive_group()
+    review_actions.add_argument(
         "--label",
         default=None,
         help="Bulk label the listed runs, or every unreviewed run",
+    )
+    review_actions.add_argument(
+        "--decision",
+        choices=["pending", "accepted", "rejected", "needs_follow_up"],
+        default=None,
+        help="Record one decision on the listed runs, or every pending run",
     )
     review.add_argument(
         "--run-id",
         action="append",
         dest="run_ids",
         default=None,
-        help="Run ID to label; repeat for several runs",
+        help="Run ID for a label or decision; repeat for several runs",
     )
 
     report = subparsers.add_parser(
@@ -214,11 +221,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     annotate = subparsers.add_parser(
-        "annotate", help="Label a run and add local review notes"
+        "annotate", help="Add local review context to one run"
     )
     annotate.add_argument("run_id")
     annotate.add_argument("--label", default=None, help="Short label for the run")
     annotate.add_argument("--note", default=None, help="Free-text review note")
+    annotate.add_argument(
+        "--decision",
+        choices=["pending", "accepted", "rejected", "needs_follow_up"],
+        default=None,
+        help="Explicit review decision",
+    )
     annotate.add_argument(
         "--clear", action="store_true", help="Remove the label and the note"
     )
@@ -436,7 +449,13 @@ def main() -> None:
         if args.offset < 0:
             raise SystemExit("--offset must be zero or greater")
         review_status = None if args.status == "all" else args.status
-        if args.label is not None:
+        if args.decision is not None:
+            run_ids = args.run_ids or store.unreviewed_run_ids(status=review_status)
+            if not run_ids:
+                raise SystemExit("No runs to decide")
+            updated = store.bulk_set_decisions(run_ids, args.decision)
+            print(json.dumps({"decision": args.decision, "updated": updated}, indent=2))
+        elif args.label is not None:
             _validate_annotation("label", args.label)
             run_ids = args.run_ids or store.unreviewed_run_ids(status=review_status)
             if not run_ids:
@@ -444,7 +463,7 @@ def main() -> None:
             updated = store.bulk_set_labels(run_ids, args.label)
             print(json.dumps({"label": args.label, "updated": updated}, indent=2))
         elif args.run_ids:
-            raise SystemExit("Provide --label together with --run-id")
+            raise SystemExit("Provide --label or --decision together with --run-id")
         else:
             print(
                 json.dumps(
@@ -509,14 +528,18 @@ def main() -> None:
         if args.clear:
             label = ""
             note = ""
-        elif args.label is None and args.note is None:
-            raise SystemExit("Provide --label, --note, or --clear")
+            decision = "pending"
+        elif args.label is None and args.note is None and args.decision is None:
+            raise SystemExit("Provide --label, --note, --decision, or --clear")
         else:
             label = args.label
             note = args.note
+            decision = args.decision
         _validate_annotation("label", label)
         _validate_annotation("note", note)
-        run = store.update_annotations(args.run_id, label=label, note=note)
+        run = store.update_annotations(
+            args.run_id, label=label, note=note, decision=decision
+        )
         if run is None:
             raise SystemExit(f"Run not found: {args.run_id}")
         print(
@@ -525,6 +548,8 @@ def main() -> None:
                     "run_id": run["run_id"],
                     "label": run["label"],
                     "note": run["note"],
+                    "decision": run["decision"],
+                    "decision_at": run["decision_at"],
                 },
                 indent=2,
             )
