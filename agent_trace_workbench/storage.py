@@ -548,6 +548,7 @@ class TraceStore:
         limit: int = 20,
         *,
         status: str | None = None,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
         """Return unlabeled runs with failure context for review.
 
@@ -557,8 +558,11 @@ class TraceStore:
 
         if status not in {None, "ok", "error"}:
             raise ValueError("status must be 'ok', 'error', or None")
+        if offset < 0:
+            raise ValueError("offset must be zero or greater")
         safe_limit = max(1, min(limit, 100))
         attributes: dict[str, Any] = {"review.limit": safe_limit}
+        attributes["review.offset"] = offset
         if status is not None:
             attributes["review.status"] = status
         with traced_operation("storage.unreviewed_runs", attributes):
@@ -572,9 +576,49 @@ class TraceStore:
                     " ORDER BY CASE WHEN status = 'error' THEN 0 ELSE 1 END, "
                     "started_at ASC, run_id ASC LIMIT ?"
                 )
-                params.append(safe_limit)
+                query += " OFFSET ?"
+                params.extend([safe_limit, offset])
                 rows = connection.execute(query, params).fetchall()
                 return _summarize_runs(connection, rows, include_error_summary=True)
+
+    def unreviewed_count(self, *, status: str | None = None) -> int:
+        """Return the number of unlabeled runs, optionally filtered by status."""
+
+        if status not in {None, "ok", "error"}:
+            raise ValueError("status must be 'ok', 'error', or None")
+        with traced_operation(
+            "storage.unreviewed_count", {"review.status": status or "all"}
+        ):
+            with self._connect() as connection:
+                query = "SELECT COUNT(*) AS count FROM runs WHERE label = ?"
+                params: list[Any] = [""]
+                if status is not None:
+                    query += " AND status = ?"
+                    params.append(status)
+                row = connection.execute(query, params).fetchone()
+                return int(row["count"])
+
+    def unreviewed_run_ids(self, *, status: str | None = None) -> list[str]:
+        """Return every unlabeled run ID for a bulk review action."""
+
+        if status not in {None, "ok", "error"}:
+            raise ValueError("status must be 'ok', 'error', or None")
+        with traced_operation(
+            "storage.unreviewed_run_ids", {"review.status": status or "all"}
+        ):
+            with self._connect() as connection:
+                query = "SELECT run_id FROM runs WHERE label = ?"
+                params: list[Any] = [""]
+                if status is not None:
+                    query += " AND status = ?"
+                    params.append(status)
+                query += (
+                    " ORDER BY CASE WHEN status = ? THEN 0 ELSE 1 END, "
+                    "started_at ASC, run_id ASC"
+                )
+                params.append("error")
+                rows = connection.execute(query, params).fetchall()
+                return [str(row["run_id"]) for row in rows]
 
     def library_report(self, *, older_than_days: int = 30) -> dict[str, Any]:
         """Return a folder-level summary of the local trace library.

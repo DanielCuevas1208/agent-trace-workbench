@@ -131,6 +131,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     review.add_argument("--limit", type=int, default=20)
     review.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Skip this many queue rows",
+    )
+    review.add_argument(
         "--status",
         choices=["all", "ok", "error"],
         default="all",
@@ -427,13 +433,12 @@ def main() -> None:
         else:
             print(json.dumps(store.list_comparisons(args.limit), indent=2))
     elif args.command == "review":
+        if args.offset < 0:
+            raise SystemExit("--offset must be zero or greater")
         review_status = None if args.status == "all" else args.status
         if args.label is not None:
             _validate_annotation("label", args.label)
-            run_ids = args.run_ids or [
-                run["run_id"]
-                for run in store.unreviewed_runs(100, status=review_status)
-            ]
+            run_ids = args.run_ids or store.unreviewed_run_ids(status=review_status)
             if not run_ids:
                 raise SystemExit("No runs to label")
             updated = store.bulk_set_labels(run_ids, args.label)
@@ -443,7 +448,12 @@ def main() -> None:
         else:
             print(
                 json.dumps(
-                    store.unreviewed_runs(args.limit, status=review_status), indent=2
+                    store.unreviewed_runs(
+                        args.limit,
+                        status=review_status,
+                        offset=args.offset,
+                    ),
+                    indent=2,
                 )
             )
     elif args.command == "report":
