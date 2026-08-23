@@ -117,6 +117,16 @@ select { min-height: 44px; padding: 0 12px; font-family: inherit; }
 .annotation-panel textarea { min-height: 108px; padding: 12px; resize: vertical; }
 .annotation-panel input:focus, .annotation-panel textarea:focus, .annotation-panel select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(44,111,159,.12); }
 .annotation-panel .form-row { margin-top: 16px; }
+.decision-history { margin: 24px 0 22px; padding: 18px 0 2px; border-top: 1px solid var(--line); }
+.decision-history-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.decision-history-heading h3 { margin-top: 5px; color: var(--navy); font: 500 19px Georgia, serif; }
+.decision-history-heading .button { min-height: 32px; padding: 0 10px; font-size: 10px; }
+.decision-history-list { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.decision-history-list li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.decision-history-change { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.decision-history-arrow { color: var(--teal); font: 700 15px Georgia, serif; }
+.decision-history-list time { color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
+.decision-history-empty { margin: 0; color: var(--muted); font-size: 12px; }
 .review-note { display: flex; flex-direction: column; gap: 5px; margin-top: 14px; padding: 13px; border-left: 3px solid var(--blue); background: rgba(44,111,159,.06); color: var(--navy); font-size: 13px; line-height: 1.55; }
 .review-note strong { font: 800 9px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .1em; text-transform: uppercase; }
 .review-decision-note { border-left-color: var(--teal); }

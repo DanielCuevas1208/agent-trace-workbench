@@ -57,6 +57,27 @@ def test_store_records_and_clears_review_decision(tmp_path, baseline):
     assert [run["run_id"] for run in store.unreviewed_runs()] == ["run-baseline-001"]
 
 
+def test_store_records_only_changed_decisions(tmp_path, baseline):
+    store = TraceStore(tmp_path / "decision-history.db")
+    store.ingest(baseline, "baseline.json")
+
+    store.update_annotations("run-baseline-001", decision="accepted")
+    store.update_annotations("run-baseline-001", decision="accepted")
+    store.update_annotations("run-baseline-001", decision="pending")
+    store.update_annotations("run-baseline-001", decision="rejected")
+
+    history = store.decision_history("run-baseline-001")
+
+    assert [(item["previous_decision"], item["decision"]) for item in history] == [
+        ("pending", "rejected"),
+        ("accepted", "pending"),
+        ("pending", "accepted"),
+    ]
+    assert all(item["changed_at"] for item in history)
+    assert len(store.decision_history("run-baseline-001", limit=1)) == 1
+    assert store.decision_history("missing") is None
+
+
 def test_store_update_returns_none_for_missing_run(tmp_path):
     store = TraceStore(tmp_path / "annotations.db")
 
@@ -122,6 +143,13 @@ def test_store_migrates_legacy_database_without_annotation_columns(tmp_path, bas
         str(row[1]) for row in sqlite3.connect(str(database)).execute("PRAGMA table_info(runs)")
     }
     assert {"label", "note", "decision", "decision_at"} <= columns
+    tables = {
+        str(row[0])
+        for row in sqlite3.connect(str(database)).execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+    }
+    assert "review_decision_history" in tables
     run = store.get_run("run-baseline-001")
     assert run["label"] == ""
     assert run["note"] == ""
@@ -213,6 +241,25 @@ def test_api_updates_review_decision(tmp_path, baseline):
     ).status_code == 422
 
 
+def test_api_returns_decision_history(tmp_path, baseline):
+    client = TestClient(create_app(tmp_path / "api.db"))
+    client.post("/api/traces", json=baseline.as_jsonable())
+    client.patch(
+        "/api/runs/run-baseline-001/annotations", json={"decision": "accepted"}
+    )
+    client.patch(
+        "/api/runs/run-baseline-001/annotations", json={"decision": "rejected"}
+    )
+
+    response = client.get("/api/runs/run-baseline-001/decision-history", params={"limit": 1})
+
+    assert response.status_code == 200
+    assert response.json()["run_id"] == "run-baseline-001"
+    assert len(response.json()["history"]) == 1
+    assert response.json()["history"][0]["previous_decision"] == "accepted"
+    assert client.get("/api/runs/missing/decision-history").status_code == 404
+
+
 def test_api_annotations_404_for_missing_run(tmp_path):
     client = TestClient(create_app(tmp_path / "api.db"))
 
@@ -276,6 +323,24 @@ def test_cli_annotate_sets_review_decision(tmp_path, baseline, monkeypatch, caps
     assert result["decision_at"]
 
 
+def test_cli_history_lists_decision_changes(tmp_path, baseline, monkeypatch, capsys):
+    store = TraceStore(tmp_path / "cli-history.db")
+    store.ingest(baseline, "baseline.json")
+    store.update_annotations("run-baseline-001", decision="accepted")
+    store.update_annotations("run-baseline-001", decision="rejected")
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["atw", "--db", str(tmp_path / "cli-history.db"), "history", "run-baseline-001"],
+    )
+    main()
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["run_id"] == "run-baseline-001"
+    assert result["history"][0]["decision"] == "rejected"
+    assert result["history"][1]["decision"] == "accepted"
+
+
 def test_cli_annotate_clears_existing_annotations(tmp_path, baseline, monkeypatch, capsys):
     store = TraceStore(tmp_path / "cli.db")
     store.ingest(baseline, "baseline.json")
@@ -317,7 +382,7 @@ def test_run_page_shows_annotation_form_and_note(tmp_path, baseline):
     client.post("/api/traces", json=baseline.as_jsonable())
     client.patch(
         "/api/runs/run-baseline-001/annotations",
-        json={"label": "golden", "note": "reference run"},
+        json={"label": "golden", "note": "reference run", "decision": "accepted"},
     )
 
     page = client.get("/runs/run-baseline-001").text
@@ -326,3 +391,7 @@ def test_run_page_shows_annotation_form_and_note(tmp_path, baseline):
     assert "golden" in page
     assert "reference run" in page
     assert "annotation-decision" in page
+    assert "Decision changes" in page
+    assert "Pending" in page
+    assert "Accepted" in page
+    assert "/api/runs/run-baseline-001/decision-history" in page

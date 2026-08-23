@@ -182,6 +182,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             run_id, span_kind=kind, span_status=status, span_tool=tool
         )
         timeline = app.state.store.error_timeline(run_id)
+        decision_history = app.state.store.decision_history(run_id)
         return render_template(
             request,
             "run.html",
@@ -189,6 +190,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 "run": run,
                 "filters": filter_set,
                 "decision_labels": _REVIEW_DECISION_LABELS,
+                "decision_history": decision_history or [],
                 "timeline": _error_timeline_chart(timeline) if timeline else None,
                 "timeline_csv_link": f"/api/runs/{run_id}/timeline?format=csv",
                 "store": app.state.store.store_info(),
@@ -542,6 +544,16 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         return _get_run_or_404(
             app.state.store, run_id, span_kind=kind, span_status=status, span_tool=tool
         )
+
+    @app.get("/api/runs/{run_id}/decision-history")
+    def api_decision_history(
+        run_id: str,
+        limit: int = Query(default=50, ge=1, le=100),
+    ) -> dict[str, Any]:
+        history = app.state.store.decision_history(run_id, limit)
+        if history is None:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        return {"run_id": run_id, "history": history}
 
     @app.get("/api/runs/{run_id}/timeline", response_model=None)
     def api_run_timeline(

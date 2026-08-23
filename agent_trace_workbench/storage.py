@@ -6,7 +6,8 @@ writer is active. It sets a busy timeout so writers wait for the write
 lock instead of failing on first contact.
 
 The store also keeps local review context beside each run. A label, note,
-and explicit decision stay in the runs table. They survive re-ingestion and
+and explicit decision stay in the runs table. Each changed decision gets a
+local history row. They survive re-ingestion and
 never enter the portable trace contract. Each run keeps the folder that
 produced it, so the report layer can group evidence by source directory.
 A retention cutoff reuses the same table: a prune deletes runs last
@@ -110,6 +111,17 @@ CREATE TABLE IF NOT EXISTS cleanup_log (
     deleted_spans INTEGER NOT NULL,
     deleted_comparisons INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS review_decision_history (
+    history_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    previous_decision TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    changed_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_review_decision_history_run
+    ON review_decision_history(run_id, history_id DESC);
 """
 
 
@@ -1129,6 +1141,11 @@ class TraceStore:
 
             def _update() -> bool:
                 with self._connect() as connection:
+                    current = connection.execute(
+                        "SELECT decision FROM runs WHERE run_id = ?", (run_id,)
+                    ).fetchone()
+                    if current is None:
+                        return False
                     sets: list[str] = []
                     values: list[Any] = []
                     for column, value in (("label", label), ("note", note)):
@@ -1136,12 +1153,18 @@ class TraceStore:
                             sets.append(f"{column} = ?")
                             values.append(value)
                     if decision is not None:
+                        changed = current["decision"] != decision
+                        changed_at = _now_utc().isoformat()
                         sets.extend(["decision = ?", "decision_at = ?"])
                         values.extend([decision, decision_at])
                     values.append(run_id)
                     cursor = connection.execute(
                         f"UPDATE runs SET {', '.join(sets)} WHERE run_id = ?", values
                     )
+                    if decision is not None and changed:
+                        _record_decision_change(
+                            connection, run_id, current["decision"], decision, changed_at
+                        )
                     return cursor.rowcount > 0
 
             if not _retry_on_lock(_update):
@@ -1176,7 +1199,10 @@ class TraceStore:
             return _retry_on_lock(_update)
 
     def bulk_set_decisions(self, run_ids: list[str], decision: str) -> int:
-        """Set one explicit review decision on several runs."""
+        """Set one explicit review decision on several runs.
+
+        The history table records only rows whose decision changes.
+        """
 
         _validate_review_decision(decision)
         unique_ids = list(dict.fromkeys(run_ids))
@@ -1190,14 +1216,52 @@ class TraceStore:
             def _update() -> int:
                 with self._connect() as connection:
                     placeholders = ", ".join("?" * len(unique_ids))
+                    rows = connection.execute(
+                        "SELECT run_id, decision FROM runs "
+                        f"WHERE run_id IN ({placeholders}) ORDER BY run_id ASC",
+                        unique_ids,
+                    ).fetchall()
+                    changed_at = _now_utc().isoformat()
                     cursor = connection.execute(
                         "UPDATE runs SET decision = ?, decision_at = ? "
                         f"WHERE run_id IN ({placeholders})",
                         [decision, decision_at, *unique_ids],
                     )
+                    for row in rows:
+                        if row["decision"] != decision:
+                            _record_decision_change(
+                                connection, row["run_id"], row["decision"], decision, changed_at
+                            )
                     return cursor.rowcount
 
             return _retry_on_lock(_update)
+
+    def decision_history(
+        self, run_id: str, limit: int = 50
+    ) -> list[dict[str, Any]] | None:
+        """Return local decision changes for one run, newest first."""
+
+        safe_limit = max(1, min(limit, 100))
+        with traced_operation(
+            "storage.decision_history", {"run.id": run_id, "history.limit": safe_limit}
+        ):
+            with self._connect() as connection:
+                run = connection.execute(
+                    "SELECT 1 FROM runs WHERE run_id = ?", (run_id,)
+                ).fetchone()
+                if run is None:
+                    return None
+                rows = connection.execute(
+                    """
+                    SELECT history_id, run_id, previous_decision, decision, changed_at
+                    FROM review_decision_history
+                    WHERE run_id = ?
+                    ORDER BY history_id DESC
+                    LIMIT ?
+                    """,
+                    (run_id, safe_limit),
+                ).fetchall()
+        return [_decision_history_row(row) for row in rows]
 
     def save_comparison(
         self,
@@ -1457,6 +1521,37 @@ def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         "decision": row["decision"],
         "decision_at": row["decision_at"],
     }
+
+
+def _decision_history_row(row: sqlite3.Row) -> dict[str, Any]:
+    """Return one local review decision change."""
+
+    return {
+        "history_id": row["history_id"],
+        "run_id": row["run_id"],
+        "previous_decision": row["previous_decision"],
+        "decision": row["decision"],
+        "changed_at": row["changed_at"],
+    }
+
+
+def _record_decision_change(
+    connection: sqlite3.Connection,
+    run_id: str,
+    previous_decision: str,
+    decision: str,
+    changed_at: str,
+) -> None:
+    """Insert one decision transition inside the caller's transaction."""
+
+    connection.execute(
+        """
+        INSERT INTO review_decision_history (
+            run_id, previous_decision, decision, changed_at
+        ) VALUES (?, ?, ?, ?)
+        """,
+        (run_id, previous_decision, decision, changed_at),
+    )
 
 
 def _span_row(row: sqlite3.Row) -> dict[str, Any]:

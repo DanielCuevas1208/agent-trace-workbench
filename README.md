@@ -38,6 +38,8 @@ Release 1.13 adds review queue pagination and coverage counts. Bulk labels now c
 
 Release 1.14 adds explicit review decisions. Record accepted, rejected, or follow-up evidence with a local timestamp.
 
+Release 1.15 adds local decision history. Review every changed decision on the run page, API, or CLI.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -82,7 +84,7 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 - `models.py` defines the portable trace contract.
 - `handlers.py` loads local handler config and applies side-effect guards.
-- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local review context. It computes the review list, stable pages, queue counts, decisions, and bulk actions. It computes the failure trend, status breakdown, agent overlay, and run error timeline. It lists one day with ordered error summaries and enforces the retention cutoff. It returns the full record for one span. A cleanup log records each scheduled sweep.
+- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local review context. It computes the review list, stable pages, queue counts, decisions, decision history, and bulk actions. It computes the failure trend, status breakdown, agent overlay, and run error timeline. It lists one day with ordered error summaries and enforces the retention cutoff. It returns the full record for one span. A cleanup log records each scheduled sweep.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
@@ -95,7 +97,7 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 
 The OpenTelemetry integration stays local by default. Set `ATW_OTEL_CONSOLE=1` to print workbench spans. Set `ATW_OTEL_COLLECTOR_ENDPOINT` to export them to a local collector.
 
-Each stored run keeps a local decision, timestamp, label, and note. They form the review context for long-lived evidence. The queue orders failures first and includes failed-span summaries. The server can sweep old evidence on an interval. The scheduler stays off unless you set `ATW_CLEANUP_EVERY_SECONDS`.
+Each stored run keeps a local decision, timestamp, label, and note. Decision changes also keep a local history. They form the review context for long-lived evidence. The queue orders failures first and includes failed-span summaries. The server can sweep old evidence on an interval. The scheduler stays off unless you set `ATW_CLEANUP_EVERY_SECONDS`.
 
 ## Setup
 
@@ -1143,6 +1145,30 @@ A decision is pending, accepted, rejected, or needs follow-up. A label is at mos
 
 Re-ingesting a trace keeps its decision, timestamp, label, and note. Review context stays local and never enters the portable trace contract.
 
+List changed decisions for one run.
+
+```powershell
+python -m agent_trace_workbench.cli history run-baseline-001
+```
+
+The command returns newest changes first.
+
+```json
+{
+  "run_id": "run-baseline-001",
+  "history": [
+    {
+      "history_id": 2,
+      "previous_decision": "accepted",
+      "decision": "rejected",
+      "changed_at": "2026-08-23T10:15:00+00:00"
+    }
+  ]
+}
+```
+
+Read the same history through `GET /api/runs/{run_id}/decision-history`.
+
 ## Review list
 
 Find runs that still need a review decision.
@@ -1221,6 +1247,8 @@ curl.exe -X POST http://127.0.0.1:8000/api/review/decisions `
 Accepted and rejected decisions leave the queue. A pending decision returns a run to the queue.
 
 The timestamp records when the local store accepted the decision.
+
+The run page shows changed decisions in newest-first order. Repeating the current decision does not add history.
 
 ## Bulk labeling
 
@@ -1567,7 +1595,9 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 374 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 377 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+
+The package wheel check remains unavailable because the existing environment lacks the `wheel` build backend.
 
 ## Limitations
 
@@ -1600,6 +1630,8 @@ A prune deletes the run, its spans, and any saved comparison that references it.
 The cleanup page deletes every run in the preview table. It does not support per-row selection.
 
 The workbench does not identify a reviewer. Decision timestamps do not prove who made a decision.
+
+Decision history records state changes only. It does not store a reason for each change.
 
 A scheduled cleanup runs only while the cleanup command runs. Stop the process to pause the schedule.
 
@@ -1720,13 +1752,14 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 1.12 complete: add a failure-first review queue with status filters and failed-span context.
 - Release 1.13 complete: add review pagination, full filtered bulk labeling, and queue coverage counts.
 - Release 1.14 complete: add explicit review decisions, local decision timestamps, and bulk decision actions.
-- Next: add an optional local history for changed review decisions.
+- Release 1.15 complete: add local history for changed review decisions across storage, API, CLI, and run pages.
+- Next: define an explicit opt-in format for exporting local review context.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline, candidate, and second-agent traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, and export. It covers review, reports, retention cleanup, scheduled cleanup, and the server scheduler. It covers the failure trend, including the agent filter, window selector, day drill-down, run error summaries, status breakdown, overlay, and the run error timeline. It covers explicit review decisions and migration behavior. It covers the span detail panel on the error timeline.
+`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, and export. It covers review, reports, retention cleanup, scheduled cleanup, and the server scheduler. It covers the failure trend, including the agent filter, window selector, day drill-down, run error summaries, status breakdown, overlay, and the run error timeline. It covers explicit review decisions, decision history, migration behavior, and the CLI and API surfaces. It covers the span detail panel on the error timeline.
 
 `static/` and `templates/` contain the presentation layer.
 

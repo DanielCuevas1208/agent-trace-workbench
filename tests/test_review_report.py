@@ -328,6 +328,7 @@ def test_store_bulk_decisions_dedupes_and_removes_queue_rows(tmp_path, baseline,
     run = store.get_run("run-candidate-001")
     assert run["decision"] == "rejected"
     assert run["decision_at"]
+    assert store.decision_history("run-candidate-001")[0]["decision"] == "rejected"
     assert [item["run_id"] for item in store.unreviewed_runs()] == ["run-baseline-001"]
 
 

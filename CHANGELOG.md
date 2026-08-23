@@ -4,6 +4,25 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.15.0 - 2026-08-23
+
+### Added
+
+- Local history for changed review decisions.
+- Decision history on each run page.
+- A JSON route for decision history.
+- An `atw history` command for decision history.
+- Migration coverage for the new history table.
+
+### Changed
+
+- Repeating the current decision does not create a history row.
+- Version numbers moved to 1.15.0.
+
+### Fixed
+
+- The all-agent trend overlay test now uses current dates instead of stale fixture dates.
+
 ## 1.14.0 - 2026-08-12
 
 ### Added

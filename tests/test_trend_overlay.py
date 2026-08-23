@@ -362,6 +362,10 @@ def test_dashboard_overlay_all_agents_view(tmp_path, baseline, candidate, suppor
     client.post("/api/traces", json=baseline.as_jsonable())
     client.post("/api/traces", json=candidate.as_jsonable())
     client.post("/api/traces", json=support.as_jsonable())
+    store = TraceStore(tmp_path / "api.db")
+    _set_started(store, baseline.run_id, 2)
+    _set_started(store, candidate.run_id, 2)
+    _set_started(store, support.run_id, 1)
 
     page = client.get("/", params={"compare": "support-assistant"}).text
 

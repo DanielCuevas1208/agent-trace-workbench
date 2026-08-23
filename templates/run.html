@@ -81,6 +81,16 @@
     </div>
     <p>Record a decision, label, and notes. They stay in the local database and survive re-ingestion.</p>
     {% if run.note %}<div class="review-note"><strong>Note</strong><span>{{ run.note }}</span></div>{% endif %}{% if run.decision_at %}<div class="review-note review-decision-note"><strong>Decision recorded</strong><span>{{ decision_labels[run.decision] }} · {{ run.decision_at }}</span></div>{% endif %}
+    <div class="decision-history">
+        <div class="decision-history-heading"><div><div class="eyebrow">LOCAL HISTORY</div><h3>Decision changes</h3></div><a class="button button-quiet" href="/api/runs/{{ run.run_id }}/decision-history">JSON</a></div>
+        {% if decision_history %}
+        <ol class="decision-history-list">
+            {% for event in decision_history %}
+            <li><div class="decision-history-change"><span class="review-decision review-decision-{{ event.previous_decision }}">{{ decision_labels[event.previous_decision] }}</span><span class="decision-history-arrow" aria-hidden="true">&rarr;</span><span class="review-decision review-decision-{{ event.decision }}">{{ decision_labels[event.decision] }}</span></div><time datetime="{{ event.changed_at }}">{{ event.changed_at }}</time></li>
+            {% endfor %}
+        </ol>
+        {% else %}<p class="decision-history-empty">No decision changes recorded yet.</p>{% endif %}
+    </div>
     <form id="annotations-form" data-run="{{ run.run_id }}">
         <label for="annotation-decision">Decision</label>
         <select id="annotation-decision" name="decision">
