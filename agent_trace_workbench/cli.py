@@ -108,6 +108,12 @@ def build_parser() -> argparse.ArgumentParser:
     span.add_argument("run_id")
     span.add_argument("span_id")
 
+    history = subparsers.add_parser(
+        "history", help="Show local review decision changes for one run"
+    )
+    history.add_argument("run_id")
+    history.add_argument("--limit", type=int, default=50)
+
     compare = subparsers.add_parser("compare", help="Compare two recorded runs")
     compare.add_argument("run_a")
     compare.add_argument("run_b")
@@ -435,6 +441,11 @@ def main() -> None:
         if detail is None:
             raise SystemExit(f"Span not found: {args.span_id}")
         print(json.dumps(detail, indent=2))
+    elif args.command == "history":
+        history = store.decision_history(args.run_id, args.limit)
+        if history is None:
+            raise SystemExit(f"Run not found: {args.run_id}")
+        print(json.dumps({"run_id": args.run_id, "history": history}, indent=2))
     elif args.command == "search":
         print(json.dumps(store.search_runs(args.query, args.limit), indent=2))
     elif args.command == "comparisons":
