@@ -24,6 +24,7 @@ from .export import (
     day_runs_to_csv,
     error_timeline_to_csv,
     report_to_csv,
+    review_bundle_to_json,
     run_tools_to_csv,
     status_trend_to_csv,
     trend_overlay_to_csv,
@@ -79,9 +80,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     configure_telemetry()
     database_path = db_path or os.getenv("ATW_DB_PATH", "data/workbench.db")
     busy_timeout_ms = _env_int("ATW_DB_BUSY_TIMEOUT_MS", 5000)
-    app = FastAPI(
-        title="Agent Trace Workbench", version=__version__, lifespan=lifespan
-    )
+    app = FastAPI(title="Agent Trace Workbench", version=__version__, lifespan=lifespan)
     app.state.store = TraceStore(database_path, busy_timeout_ms=busy_timeout_ms)
     app.state.replay_engine = _build_replay_engine()
     app.state.cleanup_scheduler = _build_cleanup_scheduler(app.state.store)
@@ -108,9 +107,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             )
             trend = overlay["primary"]
         else:
-            trend = app.state.store.failure_trend(
-                days, agent_name=selected_agent or None
-            )
+            trend = app.state.store.failure_trend(days, agent_name=selected_agent or None)
         chart = _trend_chart(
             trend,
             compare_trend=overlay["compare"] if overlay else None,
@@ -121,15 +118,11 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         day_names = {point["day"] for point in chart["points"]}
         selected_day = day if day in day_names else None
         day_runs = (
-            app.state.store.runs_on_day(
-                selected_day, agent_name=selected_agent or None
-            )
+            app.state.store.runs_on_day(selected_day, agent_name=selected_agent or None)
             if selected_day
             else None
         )
-        status_breakdown = app.state.store.status_trend(
-            days, agent_name=selected_agent or None
-        )
+        status_breakdown = app.state.store.status_trend(days, agent_name=selected_agent or None)
         trend_agents = app.state.store.trend_agents()
         return render_template(
             request,
@@ -151,16 +144,12 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                 "selected_day": selected_day,
                 "day_runs": day_runs,
                 "day_csv_link": (
-                    _day_csv_href(selected_agent, selected_day)
-                    if selected_day
-                    else None
+                    _day_csv_href(selected_agent, selected_day) if selected_day else None
                 ),
                 "trend_links": _trend_links(selected_agent, days),
                 "status_links": _status_links(selected_agent, days),
                 "overlay_links": (
-                    _overlay_links(selected_agent, compare_agent, days)
-                    if overlay
-                    else None
+                    _overlay_links(selected_agent, compare_agent, days) if overlay else None
                 ),
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
@@ -178,9 +167,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     ) -> Any:
         run = _get_run_or_404(app.state.store, run_id)
         filter_set = _span_filter_set(run, kind, status, tool)
-        run = app.state.store.get_run(
-            run_id, span_kind=kind, span_status=status, span_tool=tool
-        )
+        run = app.state.store.get_run(run_id, span_kind=kind, span_status=status, span_tool=tool)
         timeline = app.state.store.error_timeline(run_id)
         decision_history = app.state.store.decision_history(run_id)
         return render_template(
@@ -275,9 +262,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             request,
             "report.html",
             {
-                "report": app.state.store.library_report(
-                    older_than_days=older_than_days
-                ),
+                "report": app.state.store.library_report(older_than_days=older_than_days),
                 "store": app.state.store.store_info(),
                 "telemetry": _telemetry_info(),
                 "scheduler": _scheduler_status(app),
@@ -292,9 +277,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     ) -> Any:
         keep = _flag_on(keep_labeled)
         cutoff = _retention_cutoff(older_than_days)
-        candidates = app.state.store.retention_candidates(
-            cutoff, keep_labeled=keep
-        )
+        candidates = app.state.store.retention_candidates(cutoff, keep_labeled=keep)
         protected = app.state.store.protected_runs(cutoff) if keep else []
         return render_template(
             request,
@@ -458,13 +441,9 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         export_format: str = Query(default="json", alias="format"),
     ) -> Response | dict[str, Any]:
         if not compare or not compare.strip():
-            raise HTTPException(
-                status_code=400, detail="compare must name an agent"
-            )
+            raise HTTPException(status_code=400, detail="compare must name an agent")
         if agent and compare == agent:
-            raise HTTPException(
-                status_code=400, detail="compare must differ from agent"
-            )
+            raise HTTPException(status_code=400, detail="compare must differ from agent")
         overlay = app.state.store.failure_trend_overlay(
             days, agent_name=agent, compare_agent=compare
         )
@@ -590,12 +569,8 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         source_name = request.headers.get("x-trace-source", "otlp.json")
         documents = parse_otlp_json(payload)
         if not documents:
-            raise HTTPException(
-                status_code=400, detail="No traces found in the OTLP payload"
-            )
-        return [
-            app.state.store.ingest(trace, source_name) for trace in documents
-        ]
+            raise HTTPException(status_code=400, detail="No traces found in the OTLP payload")
+        return [app.state.store.ingest(trace, source_name) for trace in documents]
 
     @app.get("/api/runs/{run_id}/export")
     def api_export_run(
@@ -603,6 +578,18 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         export_format: str = Query(default="json", alias="format"),
     ) -> Response:
         trace = _get_trace_or_404(app.state.store, run_id)
+        if export_format == "review":
+            run = _get_run_or_404(app.state.store, run_id)
+            payload = review_bundle_to_json(
+                trace,
+                run,
+                app.state.store.decision_history(run_id) or [],
+            )
+            return _download_response(
+                json.dumps(payload, indent=2, default=str),
+                f"{run_id}.review.json",
+                "application/json",
+            )
         if export_format == "otlp":
             payload = trace_to_otlp_json(trace)
             filename = f"{run_id}.otlp.json"
@@ -616,7 +603,8 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             return _download_response(content, f"{run_id}.csv", "text/csv; charset=utf-8")
         else:
             raise HTTPException(
-                status_code=400, detail="format must be 'json', 'otlp', or 'csv'"
+                status_code=400,
+                detail="format must be json, otlp, csv, or review",
             )
         content = json.dumps(payload, indent=2, default=str)
         return _download_response(content, filename, media_type)
@@ -664,25 +652,19 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         trace_a = _get_trace_or_404(app.state.store, payload.run_a)
         trace_b = _get_trace_or_404(app.state.store, payload.run_b)
         report = compare_runs(trace_a, trace_b).as_dict()
-        return app.state.store.save_comparison(
-            payload.run_a, payload.run_b, payload.label, report
-        )
+        return app.state.store.save_comparison(payload.run_a, payload.run_b, payload.label, report)
 
     @app.get("/api/comparisons/{comparison_id}")
     def api_get_comparison(comparison_id: str) -> dict[str, Any]:
         comparison = app.state.store.get_comparison(comparison_id)
         if comparison is None:
-            raise HTTPException(
-                status_code=404, detail=f"Comparison not found: {comparison_id}"
-            )
+            raise HTTPException(status_code=404, detail=f"Comparison not found: {comparison_id}")
         return comparison
 
     @app.delete("/api/comparisons/{comparison_id}")
     def api_delete_comparison(comparison_id: str) -> dict[str, str]:
         if not app.state.store.delete_comparison(comparison_id):
-            raise HTTPException(
-                status_code=404, detail=f"Comparison not found: {comparison_id}"
-            )
+            raise HTTPException(status_code=404, detail=f"Comparison not found: {comparison_id}")
         return {"status": "deleted", "comparison_id": comparison_id}
 
     @app.patch("/api/runs/{run_id}/annotations")
@@ -714,8 +696,7 @@ def _build_replay_engine() -> ReplayEngine:
             engine.policy = ReplayPolicy(policy)
         except ValueError as error:
             raise ValueError(
-                f"ATW_REPLAY_POLICY must be one of "
-                f"{', '.join(item.value for item in ReplayPolicy)}"
+                f"ATW_REPLAY_POLICY must be one of {', '.join(item.value for item in ReplayPolicy)}"
             ) from error
     return engine
 
@@ -756,13 +737,13 @@ def _fallback_html(name: str, context: dict[str, Any]) -> str:
         runs = context.get("runs", [])
         cards = "".join(
             f'<li><a href="/runs/{escape(run["run_id"])}">{escape(run["agent_name"])} '
-            f'({escape(run["status"])})</a></li>'
+            f"({escape(run['status'])})</a></li>"
             for run in runs
         )
         return f"<html><body><h1>Agent Trace Workbench</h1><ul>{cards}</ul></body></html>"
     if name == "run.html":
         run = context["run"]
-        return f'<html><body><h1>{escape(run["agent_name"])}</h1></body></html>'
+        return f"<html><body><h1>{escape(run['agent_name'])}</h1></body></html>"
     if name == "replay.html":
         report = escape(str(context["report"]))
         return f"<html><body><h1>Replay report</h1><pre>{report}</pre></body></html>"
@@ -770,7 +751,7 @@ def _fallback_html(name: str, context: dict[str, Any]) -> str:
         runs = context.get("runs", [])
         cards = "".join(
             f'<li><a href="/runs/{escape(run["run_id"])}">{escape(run["agent_name"])} '
-            f'({escape(run["status"])})</a></li>'
+            f"({escape(run['status'])})</a></li>"
             for run in runs
         )
         return f"<html><body><h1>Review runs</h1><ul>{cards}</ul></body></html>"
@@ -781,7 +762,7 @@ def _fallback_html(name: str, context: dict[str, Any]) -> str:
         runs = context.get("candidate_runs", [])
         cards = "".join(
             f'<li><a href="/runs/{escape(run["run_id"])}">{escape(run["agent_name"])} '
-            f'({escape(run["status"])})</a></li>'
+            f"({escape(run['status'])})</a></li>"
             for run in runs
         )
         return f"<html><body><h1>Retention cleanup</h1><ul>{cards}</ul></body></html>"
@@ -943,9 +924,7 @@ def _trend_chart(
         "totals": totals,
     }
     if compare_trend is not None:
-        compare_points = _trend_points(
-            compare_trend, width, height, pad_x, pad_y, step
-        )
+        compare_points = _trend_points(compare_trend, width, height, pad_x, pad_y, step)
         chart["compare"] = {
             "agent": compare_agent,
             "points": compare_points,
@@ -1180,9 +1159,7 @@ def _error_timeline_chart(timeline: dict[str, Any]) -> dict[str, Any]:
     events = []
     for event in timeline["events"]:
         fraction = (
-            min(max(event["start_offset_ms"] / duration_ms, 0.0), 1.0)
-            if duration_ms > 0
-            else 0.0
+            min(max(event["start_offset_ms"] / duration_ms, 0.0), 1.0) if duration_ms > 0 else 0.0
         )
         x = round(pad_x + fraction * plot_width, 2)
         events.append({**event, "x": x})
@@ -1204,9 +1181,7 @@ def _span_filter_set(
 ) -> dict[str, Any]:
     kinds = sorted({span["kind"] for span in run["spans"]})
     statuses = sorted({span["status"] for span in run["spans"]})
-    tools = sorted(
-        {span["tool_call"]["name"] for span in run["spans"] if span.get("tool_call")}
-    )
+    tools = sorted({span["tool_call"]["name"] for span in run["spans"] if span.get("tool_call")})
     return {
         "kinds": kinds,
         "statuses": statuses,

@@ -4,6 +4,19 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.16.0 - 2026-09-01
+
+### Added
+
+- A versioned review bundle export for one run.
+- An explicit API and CLI opt-in for local labels, notes, decisions, and decision history.
+- A review bundle download on each run page.
+- Deterministic coverage for portable export boundaries and review bundles.
+
+### Changed
+
+- Version numbers moved to 1.16.0.
+
 ## 1.15.0 - 2026-08-23
 
 ### Added
