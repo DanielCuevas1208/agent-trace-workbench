@@ -17,6 +17,7 @@ from .export import (
     day_runs_to_csv,
     error_timeline_to_csv,
     report_to_csv,
+    review_bundle_to_json,
     run_tools_to_csv,
     status_trend_to_csv,
     trend_overlay_to_csv,
@@ -39,26 +40,21 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("path", type=Path)
     ingest.add_argument("--source", default=None)
 
-    import_otlp = subparsers.add_parser(
-        "import-otlp", help="Import an OTLP JSON trace file"
-    )
+    import_otlp = subparsers.add_parser("import-otlp", help="Import an OTLP JSON trace file")
     import_otlp.add_argument("path", type=Path)
     import_otlp.add_argument("--source", default=None)
 
-    export = subparsers.add_parser("export", help="Export runs to portable JSON files")
+    export = subparsers.add_parser("export", help="Export recorded runs")
+    export.add_argument("run_id", nargs="?", default=None, help="Run ID; omit to export every run")
     export.add_argument(
-        "run_id", nargs="?", default=None, help="Run ID; omit to export every run"
+        "--format",
+        choices=["json", "otlp", "csv", "review"],
+        default="json",
+        help="File format; review includes local context",
     )
-    export.add_argument(
-        "--format", choices=["json", "otlp", "csv"], default="json", help="File format"
-    )
-    export.add_argument(
-        "--output", type=Path, default=None, help="Output file or directory"
-    )
+    export.add_argument("--output", type=Path, default=None, help="Output file or directory")
 
-    publish = subparsers.add_parser(
-        "publish", help="Send recorded runs to a local collector"
-    )
+    publish = subparsers.add_parser("publish", help="Send recorded runs to a local collector")
     publish.add_argument(
         "run_id",
         nargs="?",
@@ -91,9 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the side-effect policy",
     )
 
-    timeline = subparsers.add_parser(
-        "timeline", help="Show the error timeline of one run"
-    )
+    timeline = subparsers.add_parser("timeline", help="Show the error timeline of one run")
     timeline.add_argument("run_id")
     timeline.add_argument(
         "--format",
@@ -102,9 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output format",
     )
 
-    span = subparsers.add_parser(
-        "span", help="Show the full detail of one recorded span"
-    )
+    span = subparsers.add_parser("span", help="Show the full detail of one recorded span")
     span.add_argument("run_id")
     span.add_argument("span_id")
 
@@ -132,9 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
     comparisons.add_argument("--limit", type=int, default=20)
     comparisons.add_argument("--delete", default=None, help="Comparison ID to delete")
 
-    review = subparsers.add_parser(
-        "review", help="List runs that still need a review decision"
-    )
+    review = subparsers.add_parser("review", help="List runs that still need a review decision")
     review.add_argument("--limit", type=int, default=20)
     review.add_argument(
         "--offset",
@@ -185,9 +175,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Retention line age in days (default: 30)",
     )
 
-    trend = subparsers.add_parser(
-        "trend", help="Show the daily failure trend"
-    )
+    trend = subparsers.add_parser("trend", help="Show the daily failure trend")
     trend.add_argument(
         "--days",
         type=int,
@@ -226,9 +214,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show the per-day run status breakdown",
     )
 
-    annotate = subparsers.add_parser(
-        "annotate", help="Add local review context to one run"
-    )
+    annotate = subparsers.add_parser("annotate", help="Add local review context to one run")
     annotate.add_argument("run_id")
     annotate.add_argument("--label", default=None, help="Short label for the run")
     annotate.add_argument("--note", default=None, help="Free-text review note")
@@ -238,9 +224,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Explicit review decision",
     )
-    annotate.add_argument(
-        "--clear", action="store_true", help="Remove the label and the note"
-    )
+    annotate.add_argument("--clear", action="store_true", help="Remove the label and the note")
 
     watch = subparsers.add_parser("watch", help="Watch a directory for local JSON traces")
     watch.add_argument("directory", type=Path)
@@ -384,7 +368,23 @@ def main() -> None:
                 trace = store.get_trace(run_id)
                 if trace is None:
                     raise SystemExit(f"Run not found: {run_id}")
-                path = _write_export(trace, args.format, output, single=(len(run_ids) == 1))
+                review_payload = None
+                if args.format == "review":
+                    run = store.get_run(run_id)
+                    if run is None:
+                        raise SystemExit(f"Run not found: {run_id}")
+                    review_payload = review_bundle_to_json(
+                        trace,
+                        run,
+                        store.decision_history(run_id) or [],
+                    )
+                path = _write_export(
+                    trace,
+                    args.format,
+                    output,
+                    single=(len(run_ids) == 1),
+                    review_payload=review_payload,
+                )
             exported.append({"run_id": run_id, "format": args.format, "path": str(path)})
         print(json.dumps({"exported": exported}, indent=2))
     elif args.command == "publish":
@@ -548,9 +548,7 @@ def main() -> None:
             decision = args.decision
         _validate_annotation("label", label)
         _validate_annotation("note", note)
-        run = store.update_annotations(
-            args.run_id, label=label, note=note, decision=decision
-        )
+        run = store.update_annotations(args.run_id, label=label, note=note, decision=decision)
         if run is None:
             raise SystemExit(f"Run not found: {args.run_id}")
         print(
@@ -572,11 +570,7 @@ def main() -> None:
         if args.older_than_days < 1:
             raise SystemExit("--older-than must be at least 1 day")
         cutoff = datetime.now(timezone.utc) - timedelta(days=args.older_than_days)
-        protected = (
-            store.protected_runs(cutoff, run_ids=args.run_ids)
-            if args.keep_labeled
-            else []
-        )
+        protected = store.protected_runs(cutoff, run_ids=args.run_ids) if args.keep_labeled else []
         if args.dry_run:
             candidates = store.retention_candidates(
                 cutoff, keep_labeled=args.keep_labeled, run_ids=args.run_ids
@@ -597,9 +591,7 @@ def main() -> None:
                 )
             )
         else:
-            result = store.prune_runs(
-                cutoff, keep_labeled=args.keep_labeled, run_ids=args.run_ids
-            )
+            result = store.prune_runs(cutoff, keep_labeled=args.keep_labeled, run_ids=args.run_ids)
             print(
                 json.dumps(
                     _prune_result(
@@ -645,11 +637,7 @@ def _cleanup_result(store: TraceStore, args: argparse.Namespace) -> dict[str, ob
         raise SystemExit("--older-than must be at least 1 day")
     if args.dry_run:
         cutoff = datetime.now(timezone.utc) - timedelta(days=args.older_than_days)
-        protected = (
-            store.protected_runs(cutoff, run_ids=args.run_ids)
-            if args.keep_labeled
-            else []
-        )
+        protected = store.protected_runs(cutoff, run_ids=args.run_ids) if args.keep_labeled else []
         candidates = store.retention_candidates(
             cutoff, keep_labeled=args.keep_labeled, run_ids=args.run_ids
         )
@@ -743,8 +731,11 @@ def _write_export(
     output: Path,
     *,
     single: bool,
+    review_payload: dict[str, object] | None = None,
 ) -> Path:
     suffix = ".otlp.json" if export_format == "otlp" else ".json"
+    if export_format == "review":
+        suffix = ".review.json"
     filename = f"{_safe_filename(trace.run_id)}{suffix}"
     if single and not _looks_like_directory(output, suffix):
         target = output
@@ -752,7 +743,14 @@ def _write_export(
     else:
         target = output / filename
         output.mkdir(parents=True, exist_ok=True)
-    payload = trace_to_otlp_json(trace) if export_format == "otlp" else trace.as_jsonable()
+    if export_format == "otlp":
+        payload = trace_to_otlp_json(trace)
+    elif export_format == "review":
+        if review_payload is None:
+            raise ValueError("review exports require review context")
+        payload = review_payload
+    else:
+        payload = trace.as_jsonable()
     target.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
     return target
 
@@ -760,9 +758,7 @@ def _write_export(
 def _looks_like_directory(path: Path, suffix: str) -> bool:
     if path.exists():
         return path.is_dir()
-    if path.suffix:
-        return path.suffix != suffix
-    return True
+    return not path.name.endswith(suffix)
 
 
 def _safe_filename(value: str) -> str:

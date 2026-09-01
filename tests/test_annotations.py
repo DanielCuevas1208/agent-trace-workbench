@@ -395,3 +395,4 @@ def test_run_page_shows_annotation_form_and_note(tmp_path, baseline):
     assert "Pending" in page
     assert "Accepted" in page
     assert "/api/runs/run-baseline-001/decision-history" in page
+    assert "/api/runs/run-baseline-001/export?format=review" in page

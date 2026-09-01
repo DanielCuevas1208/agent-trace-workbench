@@ -31,6 +31,43 @@ def test_api_export_json_returns_portable_document(tmp_path, baseline):
     assert body["trace_id"] == "trace-demo-001"
 
 
+def test_api_review_export_is_opt_in_and_includes_local_context(tmp_path, baseline):
+    store = TraceStore(tmp_path / "api.db")
+    _seed(store, baseline, None)
+    store.update_annotations(
+        "run-baseline-001",
+        label="golden",
+        note="reference run",
+        decision="accepted",
+    )
+    store.update_annotations("run-baseline-001", decision="rejected")
+
+    client = TestClient(create_app(tmp_path / "api.db"))
+    portable = client.get("/api/runs/run-baseline-001/export").json()
+    response = client.get(
+        "/api/runs/run-baseline-001/export",
+        params={"format": "review"},
+    )
+
+    assert "label" not in portable
+    assert "note" not in portable
+    assert response.status_code == 200
+    assert response.headers["content-disposition"].startswith(
+        "attachment; filename=" + chr(34) + "run-baseline-001.review.json" + chr(34)
+    )
+    body = response.json()
+    assert body["format"] == "agent-trace-workbench.review.v1"
+    assert body["trace"]["run_id"] == "run-baseline-001"
+    assert body["review"]["label"] == "golden"
+    assert body["review"]["note"] == "reference run"
+    assert body["review"]["decision"] == "rejected"
+    assert [item["decision"] for item in body["review"]["decision_history"]] == [
+        "rejected",
+        "accepted",
+    ]
+    assert all(item["changed_at"] for item in body["review"]["decision_history"])
+
+
 def test_api_export_otlp_returns_otlp_json(tmp_path, baseline):
     store = TraceStore(tmp_path / "api.db")
     _seed(store, baseline, None)
@@ -148,6 +185,43 @@ def test_cli_export_otlp_round_trips_through_import(
     assert trace.tool_spans()[-1].tool_call.error == "reservation window expired"
 
 
+def test_cli_export_review_writes_versioned_bundle(tmp_path, baseline, monkeypatch, capsys):
+    store = TraceStore(tmp_path / "cli.db")
+    store.ingest(baseline, "run_baseline.json")
+    store.update_annotations(
+        "run-baseline-001",
+        label="golden",
+        note="reference run",
+        decision="accepted",
+    )
+    output = tmp_path / 'review-bundle.review.json'
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "atw",
+            "--db",
+            str(tmp_path / "cli.db"),
+            "export",
+            "run-baseline-001",
+            "--format",
+            "review",
+            "--output",
+            str(output),
+        ],
+    )
+    main()
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["exported"][0]["format"] == "review"
+    assert report["exported"][0]["path"].endswith("review-bundle.review.json")
+    payload = json.loads(output.read_text(encoding='utf-8'))
+    assert payload["format"] == "agent-trace-workbench.review.v1"
+    assert payload["review"]["decision"] == "accepted"
+    assert payload["review"]["label"] == "golden"
+    assert payload["trace"]["run_id"] == "run-baseline-001"
+
+
 def test_cli_export_all_writes_one_file_per_run(tmp_path, baseline, candidate, monkeypatch, capsys):
     store = TraceStore(tmp_path / "cli.db")
     _seed(store, baseline, candidate)
@@ -172,9 +246,7 @@ def test_cli_import_otlp_derives_run_id(tmp_path, monkeypatch, capsys):
         "resourceSpans": [
             {
                 "resource": {
-                    "attributes": [
-                        {"key": "service.name", "value": {"stringValue": "inventory"}}
-                    ]
+                    "attributes": [{"key": "service.name", "value": {"stringValue": "inventory"}}]
                 },
                 "scopeSpans": [
                     {

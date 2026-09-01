@@ -256,7 +256,7 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--navy); c
 .saved-section { padding-top: 8px; }
 .table-actions { display: flex; gap: 8px; white-space: nowrap; }
 .table-actions .button { min-height: 32px; padding: 0 10px; font-size: 10px; }
-.export-actions { display: flex; gap: 6px; }
+.export-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .export-actions .button { min-height: 36px; padding: 0 11px; font-size: 10px; }
 .trend-section { padding-top: 64px; }
 .trend-section .section-heading { align-items: baseline; }

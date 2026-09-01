@@ -15,6 +15,7 @@
             <a class="button button-quiet" href="/api/runs/{{ run.run_id }}/export?format=json" download>JSON</a>
             <a class="button button-quiet" href="/api/runs/{{ run.run_id }}/export?format=otlp" download>OTLP</a>
             <a class="button button-quiet" href="/api/runs/{{ run.run_id }}/export?format=csv" download>CSV</a>
+            <a class='button button-quiet' href='/api/runs/{{ run.run_id }}/export?format=review' download>Review bundle</a>
             <button class="button button-quiet" type="button" data-collector-publish="{{ run.run_id }}">Send to collector</button>
         </div>
         <span id="publish-status" class="form-status" role="status"></span>

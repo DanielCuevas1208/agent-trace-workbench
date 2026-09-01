@@ -1,4 +1,4 @@
-"""CSV rendering for run tool calls, comparison reports, and reports.
+"""Render portable trace exports, review bundles, and CSV reports.
 
 The workbench uses the Python csv module so that every field is escaped
 correctly. Arguments and results keep their structured values as compact
@@ -14,7 +14,38 @@ import json
 from typing import Any
 
 from .compare import CompareReport
+from .models import TraceDocument
 from .telemetry import traced_operation
+
+REVIEW_EXPORT_FORMAT = "agent-trace-workbench.review.v1"
+
+
+def review_bundle_to_json(
+    trace: TraceDocument,
+    run: dict[str, Any],
+    decision_history: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Return a versioned envelope for an explicit review-context export.
+
+    The trace stays in the portable contract. Local review data stays separate.
+    """
+
+    with traced_operation(
+        "export.review_json",
+        {"run.id": trace.run_id, "review.history_count": len(decision_history)},
+    ):
+        return {
+            "format": REVIEW_EXPORT_FORMAT,
+            "trace": trace.as_jsonable(),
+            "review": {
+                "label": run.get("label", ""),
+                "note": run.get("note", ""),
+                "decision": run.get("decision", "pending"),
+                "decision_at": run.get("decision_at"),
+                "decision_history": decision_history,
+            },
+        }
+
 
 _YES = "yes"
 _NO = "no"
@@ -325,9 +356,7 @@ def trend_overlay_to_csv(overlay: dict[str, Any]) -> str:
         return _to_csv(_TREND_OVERLAY_HEADERS, rows)
 
 
-def status_trend_to_csv(
-    trend: list[dict[str, Any]], agent_name: str = ""
-) -> str:
+def status_trend_to_csv(trend: list[dict[str, Any]], agent_name: str = "") -> str:
     """Render a daily run status breakdown as a CSV document.
 
     The document lists one row per status present on a day. The
@@ -393,9 +422,7 @@ def day_runs_to_csv(day: str, runs: list[dict[str, Any]], agent_name: str = "") 
     repeats the active trend filter when one is set.
     """
 
-    with traced_operation(
-        "export.day_csv", {"trend.day": day, "trend.agent": agent_name}
-    ):
+    with traced_operation("export.day_csv", {"trend.day": day, "trend.agent": agent_name}):
         rows: list[dict[str, Any]] = []
         for run in runs:
             rows.append(
@@ -406,8 +433,7 @@ def day_runs_to_csv(day: str, runs: list[dict[str, Any]], agent_name: str = "") 
                     "status": run.get("status", ""),
                     "error_count": len(run.get("error_summary", [])),
                     "error_summary": "; ".join(
-                        item.get("message", "")
-                        for item in run.get("error_summary", [])
+                        item.get("message", "") for item in run.get("error_summary", [])
                     ),
                     "tool_count": _number(run.get("tool_count")),
                     "duration_ms": _number(run.get("duration_ms")),

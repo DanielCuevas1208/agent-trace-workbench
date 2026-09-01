@@ -40,6 +40,8 @@ Release 1.14 adds explicit review decisions. Record accepted, rejected, or follo
 
 Release 1.15 adds local decision history. Review every changed decision on the run page, API, or CLI.
 
+Release 1.16 adds an explicit review bundle export. Package one trace with its local review context when you choose.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -90,12 +92,15 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 - `replay.py` runs guarded local handlers and records mismatches.
 - `compare.py` aligns tool calls by recorded position and reports field-level deltas.
 - `export.py` renders comparisons, run tool calls, library reports, failure trends, error timelines, and day run lists as CSV files.
+- It also renders versioned review bundles with explicit local context.
 - `collector.py` posts recorded runs to a local collector over OTLP HTTP JSON.
 - `main.py` serves the interface and the JSON API. It also shapes review actions, dashboard charts, and the run error timeline.
 - `scheduler.py` runs server-side retention sweeps on an interval.
 - `telemetry.py` creates OpenTelemetry spans and exports them locally.
 
 The OpenTelemetry integration stays local by default. Set `ATW_OTEL_CONSOLE=1` to print workbench spans. Set `ATW_OTEL_COLLECTOR_ENDPOINT` to export them to a local collector.
+
+Review bundle export joins a trace with local review context only when requested.
 
 Each stored run keeps a local decision, timestamp, label, and note. Decision changes also keep a local history. They form the review context for long-lived evidence. The queue orders failures first and includes failed-span summaries. The server can sweep old evidence on an interval. The scheduler stays off unless you set `ATW_CLEANUP_EVERY_SECONDS`.
 
@@ -916,6 +921,42 @@ curl.exe -o run.otlp.json http://127.0.0.1:8000/api/runs/run-baseline-001/export
 
 The run page offers the same downloads.
 
+## Review bundle export
+
+Export local review context with an explicit format.
+
+```powershell
+python -m agent_trace_workbench.cli export run-baseline-001 --format review
+```
+
+The command writes `data/exports/run-baseline-001.review.json`.
+
+The bundle keeps the trace and review context in separate objects.
+
+```json
+{
+  "format": "agent-trace-workbench.review.v1",
+  "trace": { "run_id": "run-baseline-001", "...": "portable trace fields" },
+  "review": {
+    "label": "golden",
+    "note": "reference run",
+    "decision": "accepted",
+    "decision_at": "2026-09-01T12:00:00+00:00",
+    "decision_history": []
+  }
+}
+```
+
+The API uses the same opt-in format.
+
+```powershell
+curl.exe -o run.review.json http://127.0.0.1:8000/api/runs/run-baseline-001/export?format=review
+```
+
+The run page offers a Review bundle download beside the portable formats.
+
+The default JSON, OTLP, and CSV exports exclude local review context.
+
 ## Collector export
 
 Send a recorded run to a local OpenTelemetry collector. Use Jaeger, Tempo, or the OpenTelemetry Collector. The run appears with its spans in that tool.
@@ -1595,9 +1636,13 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 377 tests, Ruff lint, dependency checks, and Python compilation. CI installs from `requirements-lock.txt` and runs these checks on Python 3.11, 3.12, and 3.13 for every push and pull request.
+Current verification passes 379 tests, Ruff lint, dependency checks, and Python compilation.
 
-The package wheel check remains unavailable because the existing environment lacks the `wheel` build backend.
+CI uses `requirements-lock.txt`.
+
+CI tests Python 3.11, 3.12, and 3.13 on every push and pull request.
+
+The package wheel check remains unavailable because the environment lacks `bdist_wheel`.
 
 ## Limitations
 
@@ -1609,7 +1654,9 @@ Comparison aligns tool calls by recorded position. It does not infer semantic ca
 
 Search uses SQL `LIKE` matching. It does not rank results by relevance.
 
-Labels and notes stay local to the workbench database. Portable export files do not carry them.
+Labels and notes stay local to the workbench database.
+
+Standard portable exports do not carry them. Review bundles include them after explicit opt-in.
 
 The review list shows runs with an empty label and a pending decision. A blank label and pending decision count as unreviewed.
 
@@ -1729,6 +1776,8 @@ The collector export sends over plain HTTP. It does not use TLS or authenticatio
 
 The span exporter sends each workbench span as it ends. It does not batch spans.
 
+Review bundle files contain local labels, notes, decisions, and decision history.
+
 ## Roadmap
 
 - Release 0.4 complete: add search, span filtering, and saved comparisons.
@@ -1753,13 +1802,16 @@ The span exporter sends each workbench span as it ends. It does not batch spans.
 - Release 1.13 complete: add review pagination, full filtered bulk labeling, and queue coverage counts.
 - Release 1.14 complete: add explicit review decisions, local decision timestamps, and bulk decision actions.
 - Release 1.15 complete: add local history for changed review decisions across storage, API, CLI, and run pages.
-- Next: define an explicit opt-in format for exporting local review context.
+- Release 1.16 complete: add a versioned, opt-in review bundle export across the API, CLI, and run page.
+- Next: restore review bundles into a local database.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline, candidate, and second-agent traces. It also contains a handler config and demo scripts.
 
 `tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, and export. It covers review, reports, retention cleanup, scheduled cleanup, and the server scheduler. It covers the failure trend, including the agent filter, window selector, day drill-down, run error summaries, status breakdown, overlay, and the run error timeline. It covers explicit review decisions, decision history, migration behavior, and the CLI and API surfaces. It covers the span detail panel on the error timeline.
+
+Review bundle export has deterministic API and CLI coverage.
 
 `static/` and `templates/` contain the presentation layer.
 
