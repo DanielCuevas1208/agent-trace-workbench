@@ -37,6 +37,7 @@ from .models import (
     CollectorExportRequest,
     ComparisonCreate,
     RetentionRequest,
+    ReviewBundle,
     RunAnnotations,
     TraceDocument,
 )
@@ -608,6 +609,14 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             )
         content = json.dumps(payload, indent=2, default=str)
         return _download_response(content, filename, media_type)
+
+    @app.post("/api/review-bundles", status_code=201)
+    def api_restore_review_bundle(
+        bundle: ReviewBundle,
+        request: Request,
+    ) -> dict[str, Any]:
+        source_name = request.headers.get("x-trace-source", "review-bundle.json")
+        return app.state.store.restore_review_bundle(bundle, source_name)
 
     @app.post("/api/runs/{run_id}/export/collector")
     def api_publish_run(

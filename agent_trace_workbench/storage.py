@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar
 from uuid import uuid4
 
-from .models import TraceDocument, ensure_utc
+from .models import ReviewBundle, ReviewContext, TraceDocument, ensure_utc
 from .telemetry import traced_operation
 
 _T = TypeVar("_T")
@@ -215,7 +215,43 @@ class TraceStore:
             _retry_on_lock(lambda: self._write_trace(trace, source_name, source_dir))
             return self.get_run(trace.run_id) or {}
 
-    def _write_trace(self, trace: TraceDocument, source_name: str, source_dir: str) -> None:
+    def restore_review_bundle(
+        self,
+        bundle: ReviewBundle,
+        source_name: str = "review-bundle.json",
+        source_dir: str = "",
+    ) -> dict[str, Any]:
+        """Restore one trace and its review context in one transaction.
+
+        A restore replaces the local review context for the bundle run. A
+        normal ingest keeps that context unchanged.
+        """
+
+        with traced_operation(
+            "storage.restore_review_bundle",
+            {
+                "run.id": bundle.trace.run_id,
+                "review.history_count": len(bundle.review.decision_history),
+            },
+        ):
+            _retry_on_lock(
+                lambda: self._write_trace(
+                    bundle.trace,
+                    source_name,
+                    source_dir,
+                    review_context=bundle.review,
+                )
+            )
+            return self.get_run(bundle.trace.run_id) or {}
+
+    def _write_trace(
+        self,
+        trace: TraceDocument,
+        source_name: str,
+        source_dir: str,
+        *,
+        review_context: ReviewContext | None = None,
+    ) -> None:
         raw_json = json.dumps(trace.as_jsonable(), sort_keys=True, separators=(",", ":"))
         with self._connect() as connection:
             connection.execute(
@@ -283,6 +319,8 @@ class TraceStore:
                         tool.error if tool else None,
                     ),
                 )
+            if review_context is not None:
+                _write_review_context(connection, trace.run_id, review_context)
 
     def list_runs(self, limit: int = 20) -> list[dict[str, Any]]:
         """Return recent run summaries."""
@@ -1552,6 +1590,35 @@ def _record_decision_change(
         """,
         (run_id, previous_decision, decision, changed_at),
     )
+
+
+def _write_review_context(
+    connection: sqlite3.Connection,
+    run_id: str,
+    review: ReviewContext,
+) -> None:
+    """Replace one run's local review snapshot inside an open transaction."""
+
+    decision_at = ensure_utc(review.decision_at).isoformat() if review.decision_at else None
+    connection.execute(
+        "UPDATE runs SET label = ?, note = ?, decision = ?, decision_at = ? WHERE run_id = ?",
+        (review.label, review.note, review.decision, decision_at, run_id),
+    )
+    connection.execute("DELETE FROM review_decision_history WHERE run_id = ?", (run_id,))
+    for item in reversed(review.decision_history):
+        connection.execute(
+            """
+            INSERT INTO review_decision_history (
+                run_id, previous_decision, decision, changed_at
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                item.previous_decision,
+                item.decision,
+                ensure_utc(item.changed_at).isoformat(),
+            ),
+        )
 
 
 def _span_row(row: sqlite3.Row) -> dict[str, Any]:

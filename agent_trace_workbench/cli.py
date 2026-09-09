@@ -25,7 +25,7 @@ from .export import (
 )
 from .handlers import ReplayPolicy, load_handler_config
 from .ingestion import DirectoryWatcher, watch_directory
-from .models import TraceDocument
+from .models import ReviewBundle, TraceDocument
 from .otlp import parse_otlp_json, trace_to_otlp_json
 from .replay import default_replay_engine
 from .storage import TraceStore
@@ -45,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
     import_otlp.add_argument("--source", default=None)
 
     export = subparsers.add_parser("export", help="Export recorded runs")
+    import_review = subparsers.add_parser(
+        "import-review", aliases=["restore-review"], help="Restore a review bundle"
+    )
+    import_review.add_argument("path", type=Path)
+    import_review.add_argument("--source", default=None)
     export.add_argument("run_id", nargs="?", default=None, help="Run ID; omit to export every run")
     export.add_argument(
         "--format",
@@ -348,6 +353,23 @@ def main() -> None:
                     "source": str(args.path),
                     "imported_runs": len(runs),
                     "runs": runs,
+                },
+                indent=2,
+            )
+        )
+    elif args.command in {"import-review", "restore-review"}:
+        bundle = ReviewBundle.model_validate_json(args.path.read_text(encoding="utf-8"))
+        run = store.restore_review_bundle(
+            bundle,
+            args.source or args.path.name,
+            source_dir=str(args.path.parent),
+        )
+        print(
+            json.dumps(
+                {
+                    "source": str(args.path),
+                    "restored_runs": 1,
+                    "runs": [_run_summary(run)],
                 },
                 indent=2,
             )

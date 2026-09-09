@@ -11,6 +11,7 @@ SpanKind = Literal["agent", "tool", "llm", "internal"]
 SpanStatus = Literal["ok", "error", "unset"]
 ToolOutcome = Literal["success", "failure", "unknown"]
 ReviewDecision = Literal["pending", "accepted", "rejected", "needs_follow_up"]
+REVIEW_BUNDLE_FORMAT = "agent-trace-workbench.review.v1"
 
 
 class ToolCall(BaseModel):
@@ -172,6 +173,54 @@ class RunAnnotations(BaseModel):
     def validate_present(self) -> RunAnnotations:
         if self.label is None and self.note is None and self.decision is None:
             raise ValueError("Provide a label, a note, a decision, or any combination")
+        return self
+
+
+class ReviewHistoryEntry(BaseModel):
+    """One portable review decision change."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    history_id: int | None = Field(default=None, ge=1)
+    run_id: str = Field(min_length=1)
+    previous_decision: ReviewDecision
+    decision: ReviewDecision
+    changed_at: datetime
+
+
+class ReviewContext(BaseModel):
+    """Local review data carried by a versioned bundle."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(default="", max_length=80)
+    note: str = Field(default="", max_length=2000)
+    decision: ReviewDecision = "pending"
+    decision_at: datetime | None = None
+    decision_history: list[ReviewHistoryEntry] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_decision_timestamp(self) -> ReviewContext:
+        if self.decision == "pending" and self.decision_at is not None:
+            raise ValueError("pending decisions must not have a decision timestamp")
+        if self.decision != "pending" and self.decision_at is None:
+            raise ValueError("non-pending decisions require a decision timestamp")
+        return self
+
+
+class ReviewBundle(BaseModel):
+    """A trace and its local review context for deliberate restoration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    format: Literal["agent-trace-workbench.review.v1"]
+    trace: TraceDocument
+    review: ReviewContext
+
+    @model_validator(mode="after")
+    def validate_history_run_ids(self) -> ReviewBundle:
+        if any(item.run_id != self.trace.run_id for item in self.review.decision_history):
+            raise ValueError("review history must reference the bundle trace run_id")
         return self
 
 

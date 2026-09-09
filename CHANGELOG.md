@@ -4,6 +4,21 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.17.0 - 2026-09-09
+
+### Added
+
+- A validated review bundle contract.
+- Atomic restoration in the SQLite store.
+- An `import-review` CLI command.
+- A review bundle restore endpoint.
+- A dashboard file restore form.
+- Deterministic tests for validation, storage, API, CLI, and dashboard restoration.
+
+### Changed
+
+- Version numbers moved to 1.17.0.
+
 ## 1.16.0 - 2026-09-01
 
 ### Added
