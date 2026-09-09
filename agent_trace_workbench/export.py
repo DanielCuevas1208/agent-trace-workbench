@@ -14,10 +14,10 @@ import json
 from typing import Any
 
 from .compare import CompareReport
-from .models import TraceDocument
+from .models import REVIEW_BUNDLE_FORMAT, TraceDocument
 from .telemetry import traced_operation
 
-REVIEW_EXPORT_FORMAT = "agent-trace-workbench.review.v1"
+REVIEW_EXPORT_FORMAT = REVIEW_BUNDLE_FORMAT
 
 
 def review_bundle_to_json(

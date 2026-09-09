@@ -42,6 +42,8 @@ Release 1.15 adds local decision history. Review every changed decision on the r
 
 Release 1.16 adds an explicit review bundle export. Package one trace with its local review context when you choose.
 
+Release 1.17 adds review bundle restoration. Move reviewed evidence between local databases with the CLI, API, or dashboard.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -83,9 +85,12 @@ Import the OpenTelemetry JSON format to bring agent traces in. Export runs to po
 ```
 
 SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. Writers wait for the write lock.
+Review bundles enter through the same Pydantic boundary.
+Storage restores trace rows and review rows in one transaction.
 
-- `models.py` defines the portable trace contract.
+- `models.py` defines the portable trace and review bundle contracts.
 - `handlers.py` loads local handler config and applies side-effect guards.
+- Bundle restore writes the trace, review snapshot, and decision history in one transaction.
 - `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local review context. It computes the review list, stable pages, queue counts, decisions, decision history, and bulk actions. It computes the failure trend, status breakdown, agent overlay, and run error timeline. It lists one day with ordered error summaries and enforces the retention cutoff. It returns the full record for one span. A cleanup log records each scheduled sweep.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
@@ -99,6 +104,7 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 - `telemetry.py` creates OpenTelemetry spans and exports them locally.
 
 The OpenTelemetry integration stays local by default. Set `ATW_OTEL_CONSOLE=1` to print workbench spans. Set `ATW_OTEL_COLLECTOR_ENDPOINT` to export them to a local collector.
+Restore replaces the matching run snapshot. Normal trace ingestion keeps local review data.
 
 Review bundle export joins a trace with local review context only when requested.
 
@@ -957,6 +963,50 @@ The run page offers a Review bundle download beside the portable formats.
 
 The default JSON, OTLP, and CSV exports exclude local review context.
 
+## Restore a review bundle
+
+Restore a reviewed run in another local database.
+
+```powershell
+python -m agent_trace_workbench.cli --db data/reviewed.db import-review backups/run.review.json
+```
+
+The command prints one restored run.
+
+```json
+{
+  "source": "backups/run.review.json",
+  "restored_runs": 1,
+  "runs": [
+    {
+      "run_id": "run-baseline-001",
+      "status": "ok",
+      "duration_ms": 220.0,
+      "tool_count": 2,
+      "source_name": "run.review.json"
+    }
+  ]
+}
+```
+
+The API accepts the same bundle.
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/api/review-bundles `
+  -H "content-type: application/json" `
+  --data-binary "@backups/run.review.json"
+```
+
+The dashboard offers a file restore action.
+
+The format is `agent-trace-workbench.review.v1`.
+
+A restore replaces the matching trace, review snapshot, and decision history.
+
+Other runs remain unchanged.
+
+Use normal trace ingestion when local annotations must stay.
+
 ## Collector export
 
 Send a recorded run to a local OpenTelemetry collector. Use Jaeger, Tempo, or the OpenTelemetry Collector. The run appears with its spans in that tool.
@@ -1636,7 +1686,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 379 tests, Ruff lint, dependency checks, and Python compilation.
+Current verification passes 389 tests, Ruff lint, dependency checks, and Python compilation.
 
 CI uses `requirements-lock.txt`.
 
@@ -1777,6 +1827,10 @@ The collector export sends over plain HTTP. It does not use TLS or authenticatio
 The span exporter sends each workbench span as it ends. It does not batch spans.
 
 Review bundle files contain local labels, notes, decisions, and decision history.
+Review bundles accept version 1 only.
+
+A restore replaces local context for a matching run ID. It does not merge local changes.
+The CLI reads one bundle file at a time.
 
 ## Roadmap
 
@@ -1803,7 +1857,8 @@ Review bundle files contain local labels, notes, decisions, and decision history
 - Release 1.14 complete: add explicit review decisions, local decision timestamps, and bulk decision actions.
 - Release 1.15 complete: add local history for changed review decisions across storage, API, CLI, and run pages.
 - Release 1.16 complete: add a versioned, opt-in review bundle export across the API, CLI, and run page.
-- Next: restore review bundles into a local database.
+- Release 1.17 complete: restore review bundles through the API, CLI, and dashboard.
+- Next: add a dry-run conflict preview for bundle restores.
 
 ## Repository map
 
@@ -1811,7 +1866,7 @@ Review bundle files contain local labels, notes, decisions, and decision history
 
 `tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, and export. It covers review, reports, retention cleanup, scheduled cleanup, and the server scheduler. It covers the failure trend, including the agent filter, window selector, day drill-down, run error summaries, status breakdown, overlay, and the run error timeline. It covers explicit review decisions, decision history, migration behavior, and the CLI and API surfaces. It covers the span detail panel on the error timeline.
 
-Review bundle export has deterministic API and CLI coverage.
+Review bundle export and restoration have deterministic API, CLI, and storage coverage.
 
 `static/` and `templates/` contain the presentation layer.
 

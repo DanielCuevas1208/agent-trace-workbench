@@ -25,6 +25,42 @@
     }
 
     const saveForm = document.querySelector("#save-comparison");
+    const restoreForm = document.querySelector("#restore-review-form");
+    if (restoreForm) {
+        const input = restoreForm.querySelector("#review-bundle-file");
+        const status = restoreForm.querySelector("#restore-review-status");
+        const submitButton = restoreForm.querySelector("button[type=submit]");
+        restoreForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const file = input.files[0];
+            if (!file) {
+                status.className = "form-status error";
+                status.textContent = "Choose a review bundle first.";
+                return;
+            }
+            status.className = "form-status";
+            status.textContent = "Restoring...";
+            submitButton.disabled = true;
+            try {
+                const payload = JSON.parse(await file.text());
+                const response = await fetch("/api/review-bundles", {
+                    method: "POST",
+                    headers: { "content-type": "application/json", "x-trace-source": file.name },
+                    body: JSON.stringify(payload),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.detail || "Bundle could not be restored.");
+                status.textContent = "Restored. Opening run...";
+                window.location.href = `/runs/${encodeURIComponent(result.run_id)}`;
+            } catch (error) {
+                status.className = "form-status error";
+                status.textContent = error.message;
+            } finally {
+                submitButton.disabled = false;
+            }
+        });
+    }
+
     if (saveForm) {
         const status = document.querySelector("#comparison-status");
         saveForm.addEventListener("submit", async (event) => {
