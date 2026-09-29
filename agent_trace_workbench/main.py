@@ -610,6 +610,10 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         content = json.dumps(payload, indent=2, default=str)
         return _download_response(content, filename, media_type)
 
+    @app.post("/api/review-bundles/preview")
+    def api_preview_review_bundle(bundle: ReviewBundle) -> dict[str, Any]:
+        return app.state.store.preview_review_bundle_restore(bundle)
+
     @app.post("/api/review-bundles", status_code=201)
     def api_restore_review_bundle(
         bundle: ReviewBundle,

@@ -30,19 +30,84 @@
         const input = restoreForm.querySelector("#review-bundle-file");
         const status = restoreForm.querySelector("#restore-review-status");
         const submitButton = restoreForm.querySelector("button[type=submit]");
-        restoreForm.addEventListener("submit", async (event) => {
-            event.preventDefault();
+        const previewButton = restoreForm.querySelector("[data-review-preview]");
+        const previewBox = document.querySelector("#restore-review-preview");
+        const readBundle = async () => {
             const file = input.files[0];
             if (!file) {
+                throw new Error("Choose a review bundle first.");
+            }
+            return { file, payload: JSON.parse(await file.text()) };
+        };
+        const setBusy = (busy) => {
+            submitButton.disabled = busy;
+            previewButton.disabled = busy;
+        };
+        const displayValue = (value) => {
+            const text = typeof value === "string" ? value || "(empty)" : JSON.stringify(value);
+            return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+        };
+        const showPreview = (preview) => {
+            previewBox.textContent = "";
+            previewBox.hidden = false;
+            previewBox.className = `restore-preview${preview.has_conflicts ? " restore-preview-conflict" : ""}`;
+            const heading = document.createElement("strong");
+            heading.textContent = preview.has_conflicts
+                ? `${preview.conflict_count} conflict${preview.conflict_count === 1 ? "" : "s"} found.`
+                : preview.action === "create"
+                    ? "No matching run. The bundle will create one."
+                    : "No conflicts found. The stored values match the bundle.";
+            previewBox.append(heading);
+            if (preview.conflicts.length) {
+                const list = document.createElement("ul");
+                preview.conflicts.forEach((conflict) => {
+                    const item = document.createElement("li");
+                    item.textContent = `${conflict.field}: local ${displayValue(conflict.current)}; bundle ${displayValue(conflict.incoming)}`;
+                    list.append(item);
+                });
+                previewBox.append(list);
+            }
+        };
+        const previewBundle = async () => {
+            const { payload } = await readBundle();
+            const response = await fetch("/api/review-bundles/preview", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.detail || "Bundle preview failed.");
+            return result;
+        };
+        previewButton.addEventListener("click", async () => {
+            status.className = "form-status";
+            status.textContent = "Checking...";
+            setBusy(true);
+            try {
+                showPreview(await previewBundle());
+                status.textContent = "Preview ready.";
+            } catch (error) {
                 status.className = "form-status error";
-                status.textContent = "Choose a review bundle first.";
+                status.textContent = error.message;
+            } finally {
+                setBusy(false);
+            }
+        });
+        restoreForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            let file;
+            let payload;
+            try {
+                ({ file, payload } = await readBundle());
+            } catch (error) {
+                status.className = "form-status error";
+                status.textContent = error.message;
                 return;
             }
             status.className = "form-status";
             status.textContent = "Restoring...";
-            submitButton.disabled = true;
+            setBusy(true);
             try {
-                const payload = JSON.parse(await file.text());
                 const response = await fetch("/api/review-bundles", {
                     method: "POST",
                     headers: { "content-type": "application/json", "x-trace-source": file.name },
@@ -56,7 +121,7 @@
                 status.className = "form-status error";
                 status.textContent = error.message;
             } finally {
-                submitButton.disabled = false;
+                setBusy(false);
             }
         });
     }

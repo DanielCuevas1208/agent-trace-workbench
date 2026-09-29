@@ -50,6 +50,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     import_review.add_argument("path", type=Path)
     import_review.add_argument("--source", default=None)
+    import_review.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview conflicts without restoring",
+    )
     export.add_argument("run_id", nargs="?", default=None, help="Run ID; omit to export every run")
     export.add_argument(
         "--format",
@@ -359,21 +364,33 @@ def main() -> None:
         )
     elif args.command in {"import-review", "restore-review"}:
         bundle = ReviewBundle.model_validate_json(args.path.read_text(encoding="utf-8"))
-        run = store.restore_review_bundle(
-            bundle,
-            args.source or args.path.name,
-            source_dir=str(args.path.parent),
-        )
-        print(
-            json.dumps(
-                {
-                    "source": str(args.path),
-                    "restored_runs": 1,
-                    "runs": [_run_summary(run)],
-                },
-                indent=2,
+        if args.dry_run:
+            print(
+                json.dumps(
+                    {
+                        "source": str(args.path),
+                        "dry_run": True,
+                        "preview": store.preview_review_bundle_restore(bundle),
+                    },
+                    indent=2,
+                )
             )
-        )
+        else:
+            run = store.restore_review_bundle(
+                bundle,
+                args.source or args.path.name,
+                source_dir=str(args.path.parent),
+            )
+            print(
+                json.dumps(
+                    {
+                        "source": str(args.path),
+                        "restored_runs": 1,
+                        "runs": [_run_summary(run)],
+                    },
+                    indent=2,
+                )
+            )
     elif args.command == "export":
         run_ids = [args.run_id] if args.run_id else store.list_run_ids()
         if not run_ids:

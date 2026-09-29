@@ -64,6 +64,9 @@ select { min-height: 44px; padding: 0 12px; font-family: inherit; }
 .bundle-panel { max-width: 720px; }
 .bundle-panel input[type="file"] { width: 100%; padding: 12px; border: 1px solid var(--line); background: #fbfcfa; color: var(--ink); font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .bundle-panel input[type="file"]:focus { border-color: var(--blue); outline: 0; box-shadow: 0 0 0 3px rgba(44,111,159,.12); }
+.restore-preview { margin-top: 18px; padding: 14px 16px; border-left: 3px solid var(--teal); background: rgba(30,139,132,.06); color: var(--navy); font-size: 12px; line-height: 1.45; }
+.restore-preview-conflict { border-left-color: var(--coral); background: rgba(217,95,79,.06); }
+.restore-preview ul { margin: 10px 0 0; padding-left: 18px; color: var(--muted); }
 .view-list a { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 12px; padding: 17px 0; border-bottom: 1px solid var(--line); }
 .view-list a:hover strong, .view-list a:hover .view-arrow { color: var(--blue); }
 .view-number { color: var(--teal); font: 800 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
