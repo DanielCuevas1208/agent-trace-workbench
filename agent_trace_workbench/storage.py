@@ -19,6 +19,7 @@ protect it, and when the last sweep ran.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import time
@@ -243,6 +244,74 @@ class TraceStore:
                 )
             )
             return self.get_run(bundle.trace.run_id) or {}
+
+    def preview_review_bundle_restore(self, bundle: ReviewBundle) -> dict[str, Any]:
+        """Compare a bundle with local state without writing the database."""
+
+        with traced_operation(
+            "storage.preview_review_bundle_restore",
+            {
+                "run.id": bundle.trace.run_id,
+                "review.history_count": len(bundle.review.decision_history),
+            },
+        ):
+            incoming_review = _review_bundle_snapshot(bundle.review)
+            with self._connect() as connection:
+                row = connection.execute(
+                    "SELECT * FROM runs WHERE run_id = ?", (bundle.trace.run_id,)
+                ).fetchone()
+                if row is None:
+                    current = None
+                else:
+                    current_trace = TraceDocument.model_validate_json(row["raw_json"])
+                    history_rows = connection.execute(
+                        """
+                        SELECT history_id, run_id, previous_decision, decision, changed_at
+                        FROM review_decision_history
+                        WHERE run_id = ?
+                        ORDER BY history_id DESC
+                        """,
+                        (bundle.trace.run_id,),
+                    ).fetchall()
+                    current = {
+                        "trace": _trace_restore_snapshot(current_trace),
+                        "review": _stored_review_snapshot(
+                            row, [_decision_history_row(item) for item in history_rows]
+                        ),
+                    }
+
+            incoming = {
+                "trace": _trace_restore_snapshot(bundle.trace),
+                "review": incoming_review,
+            }
+            conflicts = []
+            if current is not None:
+                if current["trace"] != incoming["trace"]:
+                    conflicts.append(
+                        {
+                            "field": "trace",
+                            "current": current["trace"],
+                            "incoming": incoming["trace"],
+                        }
+                    )
+                for field in incoming_review:
+                    if current["review"][field] != incoming_review[field]:
+                        conflicts.append(
+                            {
+                                "field": f"review.{field}",
+                                "current": current["review"][field],
+                                "incoming": incoming_review[field],
+                            }
+                        )
+            return {
+                "run_id": bundle.trace.run_id,
+                "action": "create" if current is None else "replace",
+                "has_conflicts": bool(conflicts),
+                "conflict_count": len(conflicts),
+                "conflicts": conflicts,
+                "current": current,
+                "incoming": incoming,
+            }
 
     def _write_trace(
         self,
@@ -1559,6 +1628,76 @@ def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         "decision": row["decision"],
         "decision_at": row["decision_at"],
     }
+
+
+def _trace_restore_snapshot(trace: TraceDocument) -> dict[str, Any]:
+    """Return stable trace details for a restore preview."""
+
+    payload = trace.as_jsonable()
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return {
+        "run_id": trace.run_id,
+        "trace_id": trace.trace_id,
+        "agent_name": trace.agent_name,
+        "agent_version": trace.agent_version,
+        "status": trace.status,
+        "started_at": trace.started_at.isoformat() if trace.started_at else None,
+        "ended_at": trace.ended_at.isoformat() if trace.ended_at else None,
+        "span_count": len(trace.spans),
+        "fingerprint": hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16],
+    }
+
+
+def _review_bundle_snapshot(review: ReviewContext) -> dict[str, Any]:
+    """Return portable review fields without local database IDs."""
+
+    return {
+        "label": review.label,
+        "note": review.note,
+        "decision": review.decision,
+        "decision_at": _normalise_timestamp(review.decision_at),
+        "decision_history": [
+            _history_snapshot(item.model_dump(mode="json"))
+            for item in review.decision_history
+        ],
+    }
+
+
+def _stored_review_snapshot(
+    row: sqlite3.Row, history: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Return stored review fields in the bundle comparison shape."""
+
+    return {
+        "label": row["label"],
+        "note": row["note"],
+        "decision": row["decision"],
+        "decision_at": _normalise_timestamp(row["decision_at"]),
+        "decision_history": [_history_snapshot(item) for item in history],
+    }
+
+
+def _history_snapshot(item: dict[str, Any]) -> dict[str, Any]:
+    """Remove local history IDs before comparing review bundles."""
+
+    return {
+        "run_id": item["run_id"],
+        "previous_decision": item["previous_decision"],
+        "decision": item["decision"],
+        "changed_at": _normalise_timestamp(item["changed_at"]),
+    }
+
+
+def _normalise_timestamp(value: Any) -> str | None:
+    """Return timestamps in one UTC representation for stable comparisons."""
+
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return ensure_utc(parsed).isoformat()
 
 
 def _decision_history_row(row: sqlite3.Row) -> dict[str, Any]:

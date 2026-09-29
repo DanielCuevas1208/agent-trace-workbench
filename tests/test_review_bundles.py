@@ -66,6 +66,77 @@ def test_store_restores_trace_review_context_and_history(tmp_path, baseline):
     ]
 
 
+def test_store_preview_reports_review_conflicts_without_writing(tmp_path, baseline):
+    store = TraceStore(tmp_path / "preview.db")
+    store.ingest(baseline, "original.json")
+    store.update_annotations(
+        baseline.run_id,
+        label="local",
+        note="Local note.",
+        decision="accepted",
+    )
+    bundle = ReviewBundle.model_validate(_payload(baseline))
+
+    preview = store.preview_review_bundle_restore(bundle)
+
+    assert preview["action"] == "replace"
+    assert preview["has_conflicts"] is True
+    assert preview["conflict_count"] == 5
+    assert [item["field"] for item in preview["conflicts"]] == [
+        "review.label",
+        "review.note",
+        "review.decision",
+        "review.decision_at",
+        "review.decision_history",
+    ]
+    assert store.get_run(baseline.run_id)["label"] == "local"
+    assert store.get_run(baseline.run_id)["source_name"] == "original.json"
+
+
+def test_store_preview_accepts_matching_review_bundle(tmp_path, baseline):
+    store = TraceStore(tmp_path / "matching.db")
+    bundle = ReviewBundle.model_validate(_payload(baseline))
+    store.restore_review_bundle(bundle)
+
+    preview = store.preview_review_bundle_restore(bundle)
+
+    assert preview["action"] == "replace"
+    assert preview["has_conflicts"] is False
+    assert preview["conflicts"] == []
+    assert preview["current"]["trace"]["fingerprint"] == preview["incoming"]["trace"]["fingerprint"]
+
+
+def test_store_preview_reports_trace_conflict(tmp_path, baseline):
+    store = TraceStore(tmp_path / "trace-conflict.db")
+    store.ingest(baseline)
+    changed_trace = baseline.model_copy(update={"metadata": {"source": "bundle"}})
+
+    preview = store.preview_review_bundle_restore(
+        ReviewBundle.model_validate(_payload(changed_trace))
+    )
+
+    assert [item["field"] for item in preview["conflicts"]] == [
+        "trace",
+        "review.label",
+        "review.note",
+        "review.decision",
+        "review.decision_at",
+        "review.decision_history",
+    ]
+    assert preview["current"]["trace"]["fingerprint"] != preview["incoming"]["trace"]["fingerprint"]
+
+
+def test_store_preview_marks_missing_run_for_creation(tmp_path, baseline):
+    store = TraceStore(tmp_path / "new.db")
+
+    preview = store.preview_review_bundle_restore(ReviewBundle.model_validate(_payload(baseline)))
+
+    assert preview["action"] == "create"
+    assert preview["has_conflicts"] is False
+    assert preview["current"] is None
+    assert store.list_run_ids() == []
+
+
 def test_store_restore_replaces_existing_review_snapshot(tmp_path, baseline):
     store = TraceStore(tmp_path / "replace.db")
     store.ingest(baseline, "original.json")
@@ -121,6 +192,21 @@ def test_api_restores_review_bundle(tmp_path, baseline):
     ).json()["history"]] == ["rejected", "accepted"]
 
 
+def test_api_previews_review_bundle_without_restoring(tmp_path, baseline):
+    database = tmp_path / "preview-api.db"
+    store = TraceStore(database)
+    store.ingest(baseline, "local.json")
+    store.update_annotations(baseline.run_id, label="local", note="Keep local")
+    client = TestClient(create_app(database))
+
+    response = client.post("/api/review-bundles/preview", json=_payload(baseline))
+
+    assert response.status_code == 200
+    assert response.json()["has_conflicts"] is True
+    assert "review.label" in [item["field"] for item in response.json()["conflicts"]]
+    assert TraceStore(database).get_run(baseline.run_id)["label"] == "local"
+
+
 def test_api_rejects_unknown_review_bundle_version(tmp_path, baseline):
     payload = _payload(baseline)
     payload["format"] = "agent-trace-workbench.review.v2"
@@ -149,6 +235,26 @@ def test_cli_import_review_restores_bundle(tmp_path, baseline, monkeypatch, caps
     restored = TraceStore(database).get_run(baseline.run_id)
     assert restored["label"] == "golden"
     assert restored["decision"] == "rejected"
+
+
+def test_cli_import_review_dry_run_does_not_restore(tmp_path, baseline, monkeypatch, capsys):
+    source = tmp_path / "run.review.json"
+    source.write_text(json.dumps(_payload(baseline)), encoding="utf-8")
+    database = tmp_path / "cli-preview.db"
+    store = TraceStore(database)
+    store.ingest(baseline, "local.json")
+    store.update_annotations(baseline.run_id, label="local")
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["atw", "--db", str(database), "import-review", str(source), "--dry-run"],
+    )
+    main()
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["dry_run"] is True
+    assert report["preview"]["has_conflicts"] is True
+    assert TraceStore(database).get_run(baseline.run_id)["label"] == "local"
 
 
 def test_cli_restore_review_alias_is_supported(tmp_path, baseline, monkeypatch, capsys):
@@ -195,5 +301,7 @@ def test_dashboard_exposes_review_bundle_restore(tmp_path):
     assert page.status_code == 200
     assert "restore-review-form" in page.text
     assert "review-bundle-file" in page.text
+    assert "data-review-preview" in page.text
+    assert "restore-review-preview" in page.text
     assert "Six paths. One local record." in page.text
     assert "atw import-review path/to/run.review.json" in page.text

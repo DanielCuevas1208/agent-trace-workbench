@@ -4,6 +4,19 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.18.0 - 2026-09-29
+
+### Added
+
+- A read-only conflict preview for review bundle restores.
+- A `--dry-run` option for `import-review`.
+- A review bundle preview endpoint and dashboard action.
+- Deterministic coverage for new, matching, and conflicting restores.
+
+### Changed
+
+- Version numbers moved to 1.18.0.
+
 ## 1.17.0 - 2026-09-09
 
 ### Added

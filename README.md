@@ -44,6 +44,8 @@ Release 1.16 adds an explicit review bundle export. Package one trace with its l
 
 Release 1.17 adds review bundle restoration. Move reviewed evidence between local databases with the CLI, API, or dashboard.
 
+Release 1.18 adds a dry-run conflict preview. Inspect bundle changes before replacing a matching local run.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -92,6 +94,7 @@ Storage restores trace rows and review rows in one transaction.
 - `handlers.py` loads local handler config and applies side-effect guards.
 - Bundle restore writes the trace, review snapshot, and decision history in one transaction.
 - `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local review context. It computes the review list, stable pages, queue counts, decisions, decision history, and bulk actions. It computes the failure trend, status breakdown, agent overlay, and run error timeline. It lists one day with ordered error summaries and enforces the retention cutoff. It returns the full record for one span. A cleanup log records each scheduled sweep.
+- `storage.py` previews trace fingerprints and review-field conflicts without writing the database.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
@@ -997,7 +1000,41 @@ curl.exe -X POST http://127.0.0.1:8000/api/review-bundles `
   --data-binary "@backups/run.review.json"
 ```
 
-The dashboard offers a file restore action.
+Preview a bundle before restoring it.
+
+```powershell
+python -m agent_trace_workbench.cli --db data/reviewed.db import-review backups/run.review.json --dry-run
+```
+
+The command reads local state. It does not restore the bundle.
+
+```json
+{
+  "source": "backups/run.review.json",
+  "dry_run": true,
+  "preview": {
+    "action": "replace",
+    "has_conflicts": true,
+    "conflict_count": 2,
+    "conflicts": [
+      {"field": "review.label", "current": "local", "incoming": "golden"},
+      {"field": "review.note", "current": "Local note.", "incoming": "Reference evidence."}
+    ]
+  }
+}
+```
+
+The preview checks the trace fingerprint, review fields, and decision history.
+
+The API exposes the same read-only check.
+
+```powershell
+curl.exe -X POST http://127.0.0.1:8000/api/review-bundles/preview `
+  -H "content-type: application/json" `
+  --data-binary "@backups/run.review.json"
+```
+
+The dashboard offers preview and restore actions.
 
 The format is `agent-trace-workbench.review.v1`.
 
@@ -1675,7 +1712,9 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The test suite covers the core flows. It covers storage, ingestion, replay, comparison, search, and annotations. It covers decisions, bulk labels, export, review, reports, retention, and scheduled cleanup. It covers the CLI, the API, collector export, and the server scheduler. It covers the dashboard trend, including the agent filter, window selector, day drill-down, status breakdown, overlay, and the run error timeline. It covers the span detail panel on the error timeline. The CSV exports have their own tests.
+The suite covers storage, ingestion, replay, comparison, search, annotations, review, reports, retention, and cleanup.
+
+It covers the CLI, API, dashboard, collector export, scheduler, CSV exports, and review-bundle previews.
 
 Run the checks with these commands.
 
@@ -1686,7 +1725,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 389 tests, Ruff lint, dependency checks, and Python compilation.
+Current verification passes 395 tests, Ruff lint, dependency checks, and Python compilation.
 
 CI uses `requirements-lock.txt`.
 
@@ -1794,6 +1833,10 @@ The report retention line counts runs under the current policy. It uses `older_t
 
 The report CSV keeps every section in one file. Spreadsheet users filter rows by the section column.
 
+A preview compares trace fingerprints and review fields. It does not merge conflicts.
+
+The preview is advisory. A later restore can overwrite changed local state.
+
 The library report groups by the recorded source folder. API-ingested runs group under `api`. A re-ingest updates the source folder to the latest ingestion.
 
 OTLP import reads the JSON encoding only. It does not read protobuf binary files.
@@ -1858,7 +1901,8 @@ The CLI reads one bundle file at a time.
 - Release 1.15 complete: add local history for changed review decisions across storage, API, CLI, and run pages.
 - Release 1.16 complete: add a versioned, opt-in review bundle export across the API, CLI, and run page.
 - Release 1.17 complete: restore review bundles through the API, CLI, and dashboard.
-- Next: add a dry-run conflict preview for bundle restores.
+- Release 1.18 complete: preview trace and review conflicts before bundle restoration.
+- Next: add explicit restore policies for keeping local or bundle review fields.
 
 ## Repository map
 
@@ -1866,7 +1910,7 @@ The CLI reads one bundle file at a time.
 
 `tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, and export. It covers review, reports, retention cleanup, scheduled cleanup, and the server scheduler. It covers the failure trend, including the agent filter, window selector, day drill-down, run error summaries, status breakdown, overlay, and the run error timeline. It covers explicit review decisions, decision history, migration behavior, and the CLI and API surfaces. It covers the span detail panel on the error timeline.
 
-Review bundle export and restoration have deterministic API, CLI, and storage coverage.
+Review bundle export, preview, and restoration have deterministic API, CLI, dashboard, and storage coverage.
 
 `static/` and `templates/` contain the presentation layer.
 

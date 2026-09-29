@@ -2,7 +2,7 @@
 {% block title %}Runs | Agent Trace Workbench{% endblock %}
 {% block content %}
 <section class="hero">
-    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 1.17</div>
+    <div class="eyebrow">LOCAL OBSERVABILITY / RELEASE 1.18</div>
     <h1>See what your agent did.<br><em>Replay why it did it.</em></h1>
     <p class="hero-copy">Ingest local JSON traces, import OTLP exports, watch a folder, inspect every tool boundary, replay recorded work, compare runs, record evidence decisions, and read a folder-level library report without a hosted service.</p>
     <div class="hero-actions">
@@ -58,10 +58,12 @@
             <label for="review-bundle-file">Review bundle JSON</label>
             <input id="review-bundle-file" type="file" accept=".json,application/json">
             <div class="form-row">
+                <button class="button button-quiet" type="button" data-review-preview>Preview conflicts</button>
                 <button class="button button-primary" type="submit">Restore bundle <span aria-hidden="true">&#8594;</span></button>
                 <span id="restore-review-status" class="form-status" role="status"></span>
             </div>
         </form>
+        <div id="restore-review-preview" class="restore-preview" role="status" aria-live="polite" hidden></div>
         <div class="code-hint"><span>CLI</span><code>atw import-review path/to/run.review.json</code></div>
     </div>
 </section>
