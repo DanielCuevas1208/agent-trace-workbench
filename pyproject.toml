@@ -19,12 +19,12 @@ classifiers = [
     "Topic :: Software Development :: Debuggers",
 ]
 dependencies = [
-    "fastapi==0.115.6",
-    "jinja2==3.1.5",
+    "fastapi==0.141.1",
+    "jinja2==3.1.6",
     "opentelemetry-api==1.29.0",
     "opentelemetry-sdk==1.29.0",
-    "pydantic==2.10.5",
-    "uvicorn[standard]==0.34.0",
+    "pydantic==2.13.5",
+    "uvicorn[standard]==0.54.0",
 ]
 
 [project.scripts]
