@@ -80,6 +80,7 @@ def test_store_preview_reports_review_conflicts_without_writing(tmp_path, baseli
     preview = store.preview_review_bundle_restore(bundle)
 
     assert preview["action"] == "replace"
+    assert preview["policy"] == "use-bundle"
     assert preview["has_conflicts"] is True
     assert preview["conflict_count"] == 5
     assert [item["field"] for item in preview["conflicts"]] == [
@@ -91,6 +92,81 @@ def test_store_preview_reports_review_conflicts_without_writing(tmp_path, baseli
     ]
     assert store.get_run(baseline.run_id)["label"] == "local"
     assert store.get_run(baseline.run_id)["source_name"] == "original.json"
+
+
+def test_store_preview_resolves_keep_local_review_fields(tmp_path, baseline):
+    store = TraceStore(tmp_path / "policy-preview.db")
+    store.ingest(baseline, "original.json")
+    store.update_annotations(
+        baseline.run_id,
+        label="local",
+        note="Local note.",
+        decision="accepted",
+    )
+    bundle = ReviewBundle.model_validate(_payload(baseline))
+
+    preview = store.preview_review_bundle_restore(bundle, policy="keep-local")
+
+    assert preview["policy"] == "keep-local"
+    assert preview["resolved"]["trace"] == preview["incoming"]["trace"]
+    assert preview["resolved"]["review"] == preview["current"]["review"]
+    changes = {item["field"]: item for item in preview["changes"]}
+    assert changes["review.label"]["resolution"] == "keep-local"
+    assert changes["review.label"]["selected"] == "local"
+    assert changes["review.label"]["will_change"] is False
+    assert changes["review.label"]["current"] == "local"
+    assert changes["review.label"]["incoming"] == "golden"
+
+
+def test_store_restore_keep_local_preserves_review_context(tmp_path, baseline):
+    store = TraceStore(tmp_path / "keep-local.db")
+    store.ingest(baseline, "original.json")
+    store.update_annotations(
+        baseline.run_id,
+        label="local",
+        note="Local note.",
+        decision="accepted",
+    )
+
+    store.restore_review_bundle(
+        ReviewBundle.model_validate(_payload(baseline)),
+        policy="keep-local",
+    )
+
+    restored = store.get_run(baseline.run_id)
+    assert restored["label"] == "local"
+    assert restored["note"] == "Local note."
+    assert restored["decision"] == "accepted"
+
+
+def test_restore_failure_is_atomic_and_preview_is_reproducible(
+    tmp_path, baseline, monkeypatch
+):
+    store = TraceStore(tmp_path / "atomic-restore.db")
+    store.ingest(baseline, "original.json")
+    store.update_annotations(baseline.run_id, label="local", note="Local note.")
+    bundle = ReviewBundle.model_validate(_payload(baseline))
+    before = store.preview_review_bundle_restore(bundle, policy="keep-local")
+
+    def fail_review_write(*args, **kwargs):
+        raise RuntimeError("review write failed")
+
+    monkeypatch.setattr(
+        "agent_trace_workbench.storage._write_review_context",
+        fail_review_write,
+    )
+
+    with pytest.raises(RuntimeError, match="review write failed"):
+        store.restore_review_bundle(bundle, policy="use-bundle")
+
+    assert store.preview_review_bundle_restore(bundle, policy="keep-local") == before
+    restored = store.get_run(baseline.run_id)
+    assert restored["source_name"] == "original.json"
+    assert restored["label"] == "local"
+    assert (
+        store.get_trace(baseline.run_id).model_dump(mode="json")
+        == baseline.model_dump(mode="json")
+    )
 
 
 def test_store_preview_accepts_matching_review_bundle(tmp_path, baseline):
@@ -207,6 +283,27 @@ def test_api_previews_review_bundle_without_restoring(tmp_path, baseline):
     assert TraceStore(database).get_run(baseline.run_id)["label"] == "local"
 
 
+def test_api_accepts_keep_local_policy_for_preview_and_restore(tmp_path, baseline):
+    database = tmp_path / "policy-api.db"
+    store = TraceStore(database)
+    store.ingest(baseline, "local.json")
+    store.update_annotations(baseline.run_id, label="local", note="Keep local")
+    client = TestClient(create_app(database))
+    payload = _payload(baseline)
+
+    preview = client.post(
+        "/api/review-bundles/preview?policy=keep-local",
+        json=payload,
+    )
+    assert preview.status_code == 200
+    assert preview.json()["policy"] == "keep-local"
+    assert preview.json()["resolved"]["review"]["label"] == "local"
+
+    restored = client.post("/api/review-bundles?policy=keep-local", json=payload)
+    assert restored.status_code == 201
+    assert restored.json()["label"] == "local"
+
+
 def test_api_rejects_unknown_review_bundle_version(tmp_path, baseline):
     payload = _payload(baseline)
     payload["format"] = "agent-trace-workbench.review.v2"
@@ -257,6 +354,33 @@ def test_cli_import_review_dry_run_does_not_restore(tmp_path, baseline, monkeypa
     assert TraceStore(database).get_run(baseline.run_id)["label"] == "local"
 
 
+def test_cli_import_review_accepts_keep_local_policy(tmp_path, baseline, monkeypatch, capsys):
+    source = tmp_path / "run.review.json"
+    source.write_text(json.dumps(_payload(baseline)), encoding="utf-8")
+    database = tmp_path / "cli-policy.db"
+    store = TraceStore(database)
+    store.ingest(baseline, "local.json")
+    store.update_annotations(baseline.run_id, label="local")
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "atw",
+            "--db",
+            str(database),
+            "import-review",
+            str(source),
+            "--policy",
+            "keep-local",
+        ],
+    )
+    main()
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["policy"] == "keep-local"
+    assert TraceStore(database).get_run(baseline.run_id)["label"] == "local"
+
+
 def test_cli_restore_review_alias_is_supported(tmp_path, baseline, monkeypatch, capsys):
     source = tmp_path / "alias.review.json"
     source.write_text(json.dumps(_payload(baseline)), encoding="utf-8")
@@ -302,6 +426,8 @@ def test_dashboard_exposes_review_bundle_restore(tmp_path):
     assert "restore-review-form" in page.text
     assert "review-bundle-file" in page.text
     assert "data-review-preview" in page.text
+    assert "restore-policy" in page.text
+    assert "Keep local review fields" in page.text
     assert "restore-review-preview" in page.text
     assert "Six paths. One local record." in page.text
     assert "atw import-review path/to/run.review.json" in page.text

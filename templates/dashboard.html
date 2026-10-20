@@ -57,6 +57,12 @@
         <form id="restore-review-form">
             <label for="review-bundle-file">Review bundle JSON</label>
             <input id="review-bundle-file" type="file" accept=".json,application/json">
+            <label for="restore-policy">Conflict policy</label>
+            <select id="restore-policy">
+                <option value="use-bundle">Use bundle review fields</option>
+                <option value="keep-local">Keep local review fields</option>
+            </select>
+            <p>Choose how the restore handles local review fields. The bundle trace always replaces the matching trace.</p>
             <div class="form-row">
                 <button class="button button-quiet" type="button" data-review-preview>Preview conflicts</button>
                 <button class="button button-primary" type="submit">Restore bundle <span aria-hidden="true">&#8594;</span></button>

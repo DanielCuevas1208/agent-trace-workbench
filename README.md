@@ -46,6 +46,8 @@ Release 1.17 adds review bundle restoration. Move reviewed evidence between loca
 
 Release 1.18 adds a dry-run conflict preview. Inspect bundle changes before replacing a matching local run.
 
+Release 1.19 adds explicit restore policies. Keep local review fields or use bundle review fields. The preview shows every selected value.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -94,7 +96,7 @@ Storage restores trace rows and review rows in one transaction.
 - `handlers.py` loads local handler config and applies side-effect guards.
 - Bundle restore writes the trace, review snapshot, and decision history in one transaction.
 - `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local review context. It computes the review list, stable pages, queue counts, decisions, decision history, and bulk actions. It computes the failure trend, status breakdown, agent overlay, and run error timeline. It lists one day with ordered error summaries and enforces the retention cutoff. It returns the full record for one span. A cleanup log records each scheduled sweep.
-- `storage.py` previews trace fingerprints and review-field conflicts without writing the database.
+- `storage.py` previews trace fingerprints and review-field conflicts without writing the database. It resolves review fields with an explicit policy.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
@@ -112,6 +114,8 @@ Restore replaces the matching run snapshot. Normal trace ingestion keeps local r
 Review bundle export joins a trace with local review context only when requested.
 
 Each stored run keeps a local decision, timestamp, label, and note. Decision changes also keep a local history. They form the review context for long-lived evidence. The queue orders failures first and includes failed-span summaries. The server can sweep old evidence on an interval. The scheduler stays off unless you set `ATW_CLEANUP_EVERY_SECONDS`.
+
+Restore policies apply to review fields. The bundle trace always replaces the matching trace. A failed restore rolls back all writes.
 
 ## Setup
 
@@ -974,11 +978,22 @@ Restore a reviewed run in another local database.
 python -m agent_trace_workbench.cli --db data/reviewed.db import-review backups/run.review.json
 ```
 
-The command prints one restored run.
+The default policy uses bundle review fields.
+
+Keep local review fields with `--policy keep-local`.
+
+```powershell
+python -m agent_trace_workbench.cli --db data/reviewed.db import-review backups/run.review.json --policy keep-local
+```
+
+The bundle trace still replaces the matching trace.
+
+The command prints one restored run and its policy.
 
 ```json
 {
   "source": "backups/run.review.json",
+  "policy": "use-bundle",
   "restored_runs": 1,
   "runs": [
     {
@@ -995,7 +1010,7 @@ The command prints one restored run.
 The API accepts the same bundle.
 
 ```powershell
-curl.exe -X POST http://127.0.0.1:8000/api/review-bundles `
+curl.exe -X POST "http://127.0.0.1:8000/api/review-bundles?policy=keep-local" `
   -H "content-type: application/json" `
   --data-binary "@backups/run.review.json"
 ```
@@ -1003,7 +1018,7 @@ curl.exe -X POST http://127.0.0.1:8000/api/review-bundles `
 Preview a bundle before restoring it.
 
 ```powershell
-python -m agent_trace_workbench.cli --db data/reviewed.db import-review backups/run.review.json --dry-run
+python -m agent_trace_workbench.cli --db data/reviewed.db import-review backups/run.review.json --dry-run --policy keep-local
 ```
 
 The command reads local state. It does not restore the bundle.
@@ -1012,13 +1027,15 @@ The command reads local state. It does not restore the bundle.
 {
   "source": "backups/run.review.json",
   "dry_run": true,
+  "policy": "keep-local",
   "preview": {
     "action": "replace",
+    "policy": "keep-local",
     "has_conflicts": true,
     "conflict_count": 2,
     "conflicts": [
-      {"field": "review.label", "current": "local", "incoming": "golden"},
-      {"field": "review.note", "current": "Local note.", "incoming": "Reference evidence."}
+      {"field": "review.label", "current": "local", "incoming": "golden", "selected": "local", "resolution": "keep-local", "will_change": false},
+      {"field": "review.note", "current": "Local note.", "incoming": "Reference evidence.", "selected": "Local note.", "resolution": "keep-local", "will_change": false}
     ]
   }
 }
@@ -1034,11 +1051,21 @@ curl.exe -X POST http://127.0.0.1:8000/api/review-bundles/preview `
   --data-binary "@backups/run.review.json"
 ```
 
+Add `?policy=keep-local` to preview local review retention.
+
 The dashboard offers preview and restore actions.
 
 The format is `agent-trace-workbench.review.v1`.
 
-A restore replaces the matching trace, review snapshot, and decision history.
+A restore replaces the matching trace. The policy selects local or bundle review fields.
+
+`use-bundle` replaces review fields. `keep-local` preserves existing review fields.
+
+A new run has no local fields. Both policies then use the bundle fields.
+
+Each changed field shows current, incoming, selected, resolution, and `will_change` values.
+
+The restore writes trace rows and review rows in one transaction.
 
 Other runs remain unchanged.
 
@@ -1725,7 +1752,7 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 395 tests, Ruff lint, dependency checks, and Python compilation.
+Current verification passes 400 tests, Ruff lint, dependency checks, and Python compilation.
 
 CI uses `requirements-lock.txt`.
 
@@ -1833,9 +1860,15 @@ The report retention line counts runs under the current policy. It uses `older_t
 
 The report CSV keeps every section in one file. Spreadsheet users filter rows by the section column.
 
-A preview compares trace fingerprints and review fields. It does not merge conflicts.
+A preview compares trace fingerprints and review fields. It shows the selected value for each changed field.
 
-The preview is advisory. A later restore can overwrite changed local state.
+The preview is advisory. A later restore can overwrite changed local state when you use `use-bundle`.
+
+The `keep-local` policy preserves review fields only. The bundle trace still replaces the matching trace.
+
+Restore policies apply to the whole review context. The workbench does not choose a different policy per field.
+
+A failed restore rolls back trace, span, review, and decision-history writes.
 
 The library report groups by the recorded source folder. API-ingested runs group under `api`. A re-ingest updates the source folder to the latest ingestion.
 
@@ -1902,7 +1935,24 @@ The CLI reads one bundle file at a time.
 - Release 1.16 complete: add a versioned, opt-in review bundle export across the API, CLI, and run page.
 - Release 1.17 complete: restore review bundles through the API, CLI, and dashboard.
 - Release 1.18 complete: preview trace and review conflicts before bundle restoration.
-- Next: add explicit restore policies for keeping local or bundle review fields.
+- `milestone-restore-policy` — Release 1.19 complete: resolve review conflicts with explicit policies.
+  - Status: complete.
+  - User outcome: choose local or bundle review fields before restoring evidence.
+  - Deliverable: storage, CLI, API, dashboard, preview resolution, and atomic restore behavior.
+  - Acceptance: preview shows current, incoming, selected, resolution, and change status for every changed field.
+  - Verification: `python -m pytest tests/test_review_bundles.py`.
+- `milestone-semantic-alignment` — Planned: compare calls by stable identity.
+  - Status: planned.
+  - User outcome: review inserted, repeated, and reordered calls without position-only drift.
+  - Deliverable: explicit call IDs, parent relationships, ambiguous-match reporting, and comparison coverage.
+  - Acceptance: inserted calls, repeated tool names, and missing IDs remain distinguishable.
+  - Verification: `python -m pytest tests/test_comparisons.py tests/test_semantic_alignment.py`.
+- `milestone-failure-clusters` — Planned: group repeated failures into review sets.
+  - Status: planned.
+  - User outcome: open one actionable set with counts and representative failure evidence.
+  - Deliverable: deterministic error signatures, source-span links, cluster counts, and review output.
+  - Acceptance: distinct failure causes stay in separate clusters.
+  - Verification: `python -m pytest tests/test_failure_clusters.py`.
 
 ## Repository map
 
@@ -1910,7 +1960,7 @@ The CLI reads one bundle file at a time.
 
 `tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, and export. It covers review, reports, retention cleanup, scheduled cleanup, and the server scheduler. It covers the failure trend, including the agent filter, window selector, day drill-down, run error summaries, status breakdown, overlay, and the run error timeline. It covers explicit review decisions, decision history, migration behavior, and the CLI and API surfaces. It covers the span detail panel on the error timeline.
 
-Review bundle export, preview, and restoration have deterministic API, CLI, dashboard, and storage coverage.
+Review bundle export, preview, policy resolution, restoration, and atomic failure handling have deterministic coverage.
 
 `static/` and `templates/` contain the presentation layer.
 

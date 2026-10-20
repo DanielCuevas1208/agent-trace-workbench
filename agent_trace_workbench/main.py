@@ -38,6 +38,7 @@ from .models import (
     ComparisonCreate,
     RetentionRequest,
     ReviewBundle,
+    ReviewRestorePolicy,
     RunAnnotations,
     TraceDocument,
 )
@@ -611,16 +612,20 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         return _download_response(content, filename, media_type)
 
     @app.post("/api/review-bundles/preview")
-    def api_preview_review_bundle(bundle: ReviewBundle) -> dict[str, Any]:
-        return app.state.store.preview_review_bundle_restore(bundle)
+    def api_preview_review_bundle(
+        bundle: ReviewBundle,
+        policy: ReviewRestorePolicy = "use-bundle",
+    ) -> dict[str, Any]:
+        return app.state.store.preview_review_bundle_restore(bundle, policy=policy)
 
     @app.post("/api/review-bundles", status_code=201)
     def api_restore_review_bundle(
         bundle: ReviewBundle,
         request: Request,
+        policy: ReviewRestorePolicy = "use-bundle",
     ) -> dict[str, Any]:
         source_name = request.headers.get("x-trace-source", "review-bundle.json")
-        return app.state.store.restore_review_bundle(bundle, source_name)
+        return app.state.store.restore_review_bundle(bundle, source_name, policy=policy)
 
     @app.post("/api/runs/{run_id}/export/collector")
     def api_publish_run(

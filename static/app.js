@@ -28,6 +28,7 @@
     const restoreForm = document.querySelector("#restore-review-form");
     if (restoreForm) {
         const input = restoreForm.querySelector("#review-bundle-file");
+        const policyInput = restoreForm.querySelector("#restore-policy");
         const status = restoreForm.querySelector("#restore-review-status");
         const submitButton = restoreForm.querySelector("button[type=submit]");
         const previewButton = restoreForm.querySelector("[data-review-preview]");
@@ -47,6 +48,7 @@
             const text = typeof value === "string" ? value || "(empty)" : JSON.stringify(value);
             return text.length > 120 ? `${text.slice(0, 117)}...` : text;
         };
+        const policyQuery = () => `?policy=${encodeURIComponent(policyInput.value)}`;
         const showPreview = (preview) => {
             previewBox.textContent = "";
             previewBox.hidden = false;
@@ -62,7 +64,8 @@
                 const list = document.createElement("ul");
                 preview.conflicts.forEach((conflict) => {
                     const item = document.createElement("li");
-                    item.textContent = `${conflict.field}: local ${displayValue(conflict.current)}; bundle ${displayValue(conflict.incoming)}`;
+                    const resolution = conflict.resolution === "keep-local" ? "keep local" : "use bundle";
+                    item.textContent = `${conflict.field}: ${resolution}; local ${displayValue(conflict.current)}; bundle ${displayValue(conflict.incoming)}; selected ${displayValue(conflict.selected)}`;
                     list.append(item);
                 });
                 previewBox.append(list);
@@ -70,7 +73,7 @@
         };
         const previewBundle = async () => {
             const { payload } = await readBundle();
-            const response = await fetch("/api/review-bundles/preview", {
+            const response = await fetch(`/api/review-bundles/preview${policyQuery()}`, {
                 method: "POST",
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify(payload),
@@ -108,7 +111,7 @@
             status.textContent = "Restoring...";
             setBusy(true);
             try {
-                const response = await fetch("/api/review-bundles", {
+                const response = await fetch(`/api/review-bundles${policyQuery()}`, {
                     method: "POST",
                     headers: { "content-type": "application/json", "x-trace-source": file.name },
                     body: JSON.stringify(payload),

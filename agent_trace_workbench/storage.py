@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar
 from uuid import uuid4
 
-from .models import ReviewBundle, ReviewContext, TraceDocument, ensure_utc
+from .models import ReviewBundle, ReviewContext, ReviewRestorePolicy, TraceDocument, ensure_utc
 from .telemetry import traced_operation
 
 _T = TypeVar("_T")
@@ -221,18 +221,23 @@ class TraceStore:
         bundle: ReviewBundle,
         source_name: str = "review-bundle.json",
         source_dir: str = "",
+        *,
+        policy: ReviewRestorePolicy = "use-bundle",
     ) -> dict[str, Any]:
         """Restore one trace and its review context in one transaction.
 
-        A restore replaces the local review context for the bundle run. A
-        normal ingest keeps that context unchanged.
+        The bundle trace always replaces the matching trace. The policy
+        chooses whether an existing run keeps or replaces its review fields.
+        A normal ingest keeps that context unchanged.
         """
 
+        _validate_restore_policy(policy)
         with traced_operation(
             "storage.restore_review_bundle",
             {
                 "run.id": bundle.trace.run_id,
                 "review.history_count": len(bundle.review.decision_history),
+                "review.policy": policy,
             },
         ):
             _retry_on_lock(
@@ -241,18 +246,26 @@ class TraceStore:
                     source_name,
                     source_dir,
                     review_context=bundle.review,
+                    review_policy=policy,
                 )
             )
             return self.get_run(bundle.trace.run_id) or {}
 
-    def preview_review_bundle_restore(self, bundle: ReviewBundle) -> dict[str, Any]:
+    def preview_review_bundle_restore(
+        self,
+        bundle: ReviewBundle,
+        *,
+        policy: ReviewRestorePolicy = "use-bundle",
+    ) -> dict[str, Any]:
         """Compare a bundle with local state without writing the database."""
 
+        _validate_restore_policy(policy)
         with traced_operation(
             "storage.preview_review_bundle_restore",
             {
                 "run.id": bundle.trace.run_id,
                 "review.history_count": len(bundle.review.decision_history),
+                "review.policy": policy,
             },
         ):
             incoming_review = _review_bundle_snapshot(bundle.review)
@@ -284,33 +297,53 @@ class TraceStore:
                 "trace": _trace_restore_snapshot(bundle.trace),
                 "review": incoming_review,
             }
-            conflicts = []
+            changes = []
             if current is not None:
                 if current["trace"] != incoming["trace"]:
-                    conflicts.append(
-                        {
-                            "field": "trace",
-                            "current": current["trace"],
-                            "incoming": incoming["trace"],
-                        }
+                    changes.append(
+                        _restore_field_change(
+                            "trace",
+                            current["trace"],
+                            incoming["trace"],
+                            selected=incoming["trace"],
+                            resolution="use-bundle",
+                        )
                     )
                 for field in incoming_review:
                     if current["review"][field] != incoming_review[field]:
-                        conflicts.append(
-                            {
-                                "field": f"review.{field}",
-                                "current": current["review"][field],
-                                "incoming": incoming_review[field],
-                            }
+                        selected = (
+                            current["review"][field]
+                            if policy == "keep-local"
+                            else incoming_review[field]
                         )
+                        changes.append(
+                            _restore_field_change(
+                                f"review.{field}",
+                                current["review"][field],
+                                incoming_review[field],
+                                selected=selected,
+                                resolution=policy,
+                            )
+                        )
+            resolved = {
+                "trace": incoming["trace"],
+                "review": (
+                    current["review"]
+                    if current is not None and policy == "keep-local"
+                    else incoming_review
+                ),
+            }
             return {
                 "run_id": bundle.trace.run_id,
                 "action": "create" if current is None else "replace",
-                "has_conflicts": bool(conflicts),
-                "conflict_count": len(conflicts),
-                "conflicts": conflicts,
+                "policy": policy,
+                "has_conflicts": bool(changes),
+                "conflict_count": len(changes),
+                "conflicts": changes,
+                "changes": changes,
                 "current": current,
                 "incoming": incoming,
+                "resolved": resolved,
             }
 
     def _write_trace(
@@ -320,9 +353,13 @@ class TraceStore:
         source_dir: str,
         *,
         review_context: ReviewContext | None = None,
+        review_policy: ReviewRestorePolicy = "use-bundle",
     ) -> None:
         raw_json = json.dumps(trace.as_jsonable(), sort_keys=True, separators=(",", ":"))
         with self._connect() as connection:
+            selected_review = review_context
+            if review_context is not None and review_policy == "keep-local":
+                selected_review = _read_review_context(connection, trace.run_id) or review_context
             connection.execute(
                 """
                 INSERT INTO runs (
@@ -388,8 +425,8 @@ class TraceStore:
                         tool.error if tool else None,
                     ),
                 )
-            if review_context is not None:
-                _write_review_context(connection, trace.run_id, review_context)
+            if selected_review is not None:
+                _write_review_context(connection, trace.run_id, selected_review)
 
     def list_runs(self, limit: int = 20) -> list[dict[str, Any]]:
         """Return recent run summaries."""
@@ -1661,6 +1698,65 @@ def _review_bundle_snapshot(review: ReviewContext) -> dict[str, Any]:
             for item in review.decision_history
         ],
     }
+
+
+def _restore_field_change(
+    field: str,
+    current: Any,
+    incoming: Any,
+    *,
+    selected: Any,
+    resolution: str,
+) -> dict[str, Any]:
+    """Describe one changed restore field and its selected value."""
+
+    return {
+        "field": field,
+        "current": current,
+        "incoming": incoming,
+        "selected": selected,
+        "resolution": resolution,
+        "will_change": current != selected,
+    }
+
+
+def _validate_restore_policy(policy: str) -> None:
+    """Reject unknown review restore policies before opening a transaction."""
+
+    if policy not in {"keep-local", "use-bundle"}:
+        raise ValueError("policy must be 'keep-local' or 'use-bundle'")
+
+
+def _read_review_context(
+    connection: sqlite3.Connection,
+    run_id: str,
+) -> ReviewContext | None:
+    """Read one run's review context inside an existing transaction."""
+
+    row = connection.execute(
+        "SELECT label, note, decision, decision_at FROM runs WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    history_rows = connection.execute(
+        """
+        SELECT history_id, run_id, previous_decision, decision, changed_at
+        FROM review_decision_history
+        WHERE run_id = ?
+        ORDER BY history_id DESC
+        """,
+        (run_id,),
+    ).fetchall()
+    return ReviewContext.model_validate(
+        {
+            "label": row["label"],
+            "note": row["note"],
+            "decision": row["decision"],
+            "decision_at": row["decision_at"],
+            "decision_history": [_decision_history_row(item) for item in history_rows],
+        }
+    )
 
 
 def _stored_review_snapshot(

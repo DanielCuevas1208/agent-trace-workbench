@@ -11,6 +11,7 @@ SpanKind = Literal["agent", "tool", "llm", "internal"]
 SpanStatus = Literal["ok", "error", "unset"]
 ToolOutcome = Literal["success", "failure", "unknown"]
 ReviewDecision = Literal["pending", "accepted", "rejected", "needs_follow_up"]
+ReviewRestorePolicy = Literal["keep-local", "use-bundle"]
 REVIEW_BUNDLE_FORMAT = "agent-trace-workbench.review.v1"
 
 
