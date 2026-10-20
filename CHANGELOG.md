@@ -4,6 +4,19 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.19.0 - 2026-10-20
+
+### Added
+
+- Explicit `keep-local` and `use-bundle` policies for review bundle restores.
+- Restore previews now show selected values and resolution for every changed field.
+- Atomic restore coverage proves failed writes leave the database unchanged.
+- CLI, API, and dashboard controls expose the restore policy.
+
+### Changed
+
+- Version numbers moved to 1.19.0.
+
 ## 1.18.0 - 2026-09-29
 
 ### Added

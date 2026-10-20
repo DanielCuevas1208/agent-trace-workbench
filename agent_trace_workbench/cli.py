@@ -55,6 +55,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Preview conflicts without restoring",
     )
+    import_review.add_argument(
+        "--policy",
+        choices=["keep-local", "use-bundle"],
+        default="use-bundle",
+        help="Choose local or bundle review fields",
+    )
     export.add_argument("run_id", nargs="?", default=None, help="Run ID; omit to export every run")
     export.add_argument(
         "--format",
@@ -370,7 +376,11 @@ def main() -> None:
                     {
                         "source": str(args.path),
                         "dry_run": True,
-                        "preview": store.preview_review_bundle_restore(bundle),
+                        "policy": args.policy,
+                        "preview": store.preview_review_bundle_restore(
+                            bundle,
+                            policy=args.policy,
+                        ),
                     },
                     indent=2,
                 )
@@ -380,11 +390,13 @@ def main() -> None:
                 bundle,
                 args.source or args.path.name,
                 source_dir=str(args.path.parent),
+                policy=args.policy,
             )
             print(
                 json.dumps(
                     {
                         "source": str(args.path),
+                        "policy": args.policy,
                         "restored_runs": 1,
                         "runs": [_run_summary(run)],
                     },
