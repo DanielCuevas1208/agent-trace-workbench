@@ -4,7 +4,7 @@ anyio==4.14.2
 certifi==2026.7.22
 click==8.4.2
 colorama==0.4.6
-fastapi==0.141.1
+fastapi==0.162.0
 h11==0.16.0
 httpcore==1.0.9
 httptools==0.8.0
@@ -19,7 +19,7 @@ opentelemetry-semantic-conventions==0.66b0
 packaging==26.2
 pluggy==1.6.0
 pydantic-core==2.46.5
-pydantic==2.13.5
+pydantic==2.14.1
 pytest==8.3.4
 python-dotenv==1.2.3
 pyyaml==6.0.3
