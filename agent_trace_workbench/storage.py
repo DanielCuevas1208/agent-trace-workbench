@@ -45,6 +45,10 @@ _EXTRA_COLUMNS = {
     "decision": "decision TEXT NOT NULL DEFAULT 'pending'",
     "decision_at": "decision_at TEXT",
 }
+_SPAN_EXTRA_COLUMNS = {
+    "call_id": "call_id TEXT",
+    "parent_call_id": "parent_call_id TEXT",
+}
 _EMPTY_FOLDER = "api"
 
 SCHEMA = """
@@ -81,6 +85,8 @@ CREATE TABLE IF NOT EXISTS spans (
     sequence_index INTEGER,
     attributes_json TEXT NOT NULL,
     tool_name TEXT,
+    call_id TEXT,
+    parent_call_id TEXT,
     arguments_json TEXT,
     result_json TEXT,
     outcome TEXT,
@@ -178,6 +184,17 @@ class TraceStore:
                     continue
                 try:
                     connection.execute(f"ALTER TABLE runs ADD COLUMN {definition}")
+                except sqlite3.OperationalError as error:
+                    if "duplicate column" not in str(error).lower():
+                        raise
+            existing_spans = {
+                row["name"] for row in connection.execute("PRAGMA table_info(spans)")
+            }
+            for column, definition in _SPAN_EXTRA_COLUMNS.items():
+                if column in existing_spans:
+                    continue
+                try:
+                    connection.execute(f"ALTER TABLE spans ADD COLUMN {definition}")
                 except sqlite3.OperationalError as error:
                     if "duplicate column" not in str(error).lower():
                         raise
@@ -403,8 +420,8 @@ class TraceStore:
                     INSERT INTO spans (
                         run_id, span_id, parent_span_id, name, kind, status, start_time,
                         end_time, duration_ms, sequence_index, attributes_json, tool_name,
-                        arguments_json, result_json, outcome, error
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        call_id, parent_call_id, arguments_json, result_json, outcome, error
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         trace.run_id,
@@ -419,6 +436,8 @@ class TraceStore:
                         span.sequence,
                         _json(span.attributes),
                         tool.name if tool else None,
+                        tool.call_id if tool else None,
+                        tool.parent_call_id if tool else None,
                         _json(tool.arguments) if tool else None,
                         _json(tool.result) if tool else None,
                         tool.outcome if tool else None,
@@ -1870,6 +1889,8 @@ def _span_row(row: sqlite3.Row) -> dict[str, Any]:
         "attributes": json.loads(row["attributes_json"]),
         "tool_call": {
             "name": row["tool_name"],
+            "call_id": row["call_id"],
+            "parent_call_id": row["parent_call_id"],
             "arguments": json.loads(row["arguments_json"]),
             "result": json.loads(row["result_json"]),
             "outcome": row["outcome"],

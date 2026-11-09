@@ -2,7 +2,7 @@
 
 Agent Trace Workbench keeps agent-run evidence on your machine.
 
-It records local JSON traces in SQLite. It replays tool calls with deterministic handlers. It compares runs by call order, timing, results, and outcomes.
+It records local JSON traces in SQLite. It replays tool calls with deterministic handlers. It compares runs by call identity, timing, results, and outcomes.
 
 Release 0.8 adds local OpenTelemetry collector export. Send workbench spans or a recorded run to a local collector over OTLP HTTP JSON. The data stays on your machine.
 
@@ -48,6 +48,8 @@ Release 1.18 adds a dry-run conflict preview. Inspect bundle changes before repl
 
 Release 1.19 adds explicit restore policies. Keep local review fields or use bundle review fields. The preview shows every selected value.
 
+Release 1.20 adds semantic comparison alignment. Stable call IDs and parent relationships prevent inserted calls from shifting later matches.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -92,15 +94,15 @@ SQLite runs in WAL mode with a busy timeout. Readers keep a committed snapshot. 
 Review bundles enter through the same Pydantic boundary.
 Storage restores trace rows and review rows in one transaction.
 
-- `models.py` defines the portable trace and review bundle contracts.
+- `models.py` defines the portable trace and review bundle contracts. Tool calls may include stable call IDs and parent call IDs.
 - `handlers.py` loads local handler config and applies side-effect guards.
 - Bundle restore writes the trace, review snapshot, and decision history in one transaction.
-- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local review context. It computes the review list, stable pages, queue counts, decisions, decision history, and bulk actions. It computes the failure trend, status breakdown, agent overlay, and run error timeline. It lists one day with ordered error summaries and enforces the retention cutoff. It returns the full record for one span. A cleanup log records each scheduled sweep.
+- `storage.py` owns the SQLite schema, WAL coordination, idempotent ingestion, and local review context. It computes the review list, stable pages, queue counts, decisions, decision history, and bulk actions. It computes the failure trend, status breakdown, agent overlay, and run error timeline. It lists one day with ordered error summaries and enforces the retention cutoff. It returns the full record for one span. A cleanup log records each scheduled sweep. It stores call identity fields for semantic comparison.
 - `storage.py` previews trace fingerprints and review-field conflicts without writing the database. It resolves review fields with an explicit policy.
 - `ingestion.py` watches JSON files and returns stable schema error reports.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
-- `compare.py` aligns tool calls by recorded position and reports field-level deltas.
+- `compare.py` aligns tool calls by stable IDs, parent/tool context, and visible positional fallbacks.
 - `export.py` renders comparisons, run tool calls, library reports, failure trends, error timelines, and day run lists as CSV files.
 - It also renders versioned review bundles with explicit local context.
 - `collector.py` posts recorded runs to a local collector over OTLP HTTP JSON.
@@ -185,6 +187,8 @@ python -m agent_trace_workbench.cli compare run-baseline-001 run-candidate-001
 ```
 
 The comparison reports one changed result and one added failing call.
+
+The report also shows the alignment method and any ambiguous matches.
 
 Watch a folder once.
 
@@ -1725,7 +1729,7 @@ Each span requires an ID, name, kind, timestamps, and status.
 
 A tool span also requires `tool_call` data.
 
-`tool_call` stores the name, arguments, result, outcome, and optional error.
+`tool_call` stores the name, arguments, result, outcome, optional error, and optional call IDs.
 
 See `fixtures/run_baseline.json` for a complete example.
 
@@ -1739,9 +1743,11 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The suite covers storage, ingestion, replay, comparison, search, annotations, review, reports, retention, and cleanup.
+The suite covers storage, ingestion, replay, semantic comparison, search, annotations, review, reports, retention, and cleanup.
 
 It covers the CLI, API, dashboard, collector export, scheduler, CSV exports, and review-bundle previews.
+
+Semantic comparison tests cover inserted calls, repeated tool names, nested parents, and missing IDs.
 
 Run the checks with these commands.
 
@@ -1752,13 +1758,13 @@ python scripts/check_requirements.py
 python -m compileall agent_trace_workbench tests
 ```
 
-Current verification passes 400 tests, Ruff lint, dependency checks, and Python compilation.
+Current verification passes 407 tests, Ruff lint, dependency checks, and Python compilation.
 
 CI uses `requirements-lock.txt`.
 
 CI tests Python 3.11, 3.12, and 3.13 on every push and pull request.
 
-The package wheel check remains unavailable because the environment lacks `bdist_wheel`.
+The local wheel check is unavailable because the environment lacks `bdist_wheel`.
 
 ## Limitations
 
@@ -1766,7 +1772,11 @@ Replay does not call external tools. Unknown tools use their recorded results.
 
 The guard trusts the declared side-effect level. It does not inspect the handler code.
 
-Comparison aligns tool calls by recorded position. It does not infer semantic call identity.
+Comparison uses call IDs first, then span IDs, parent/tool context, and recorded position.
+
+Position fallback is marked ambiguous. It cannot prove that two ID-less calls represent the same action.
+
+Parent/tool matching cannot resolve repeated ID-less calls. The report lists every candidate span for review.
 
 Search uses SQL `LIKE` matching. It does not rank results by relevance.
 
@@ -1941,24 +1951,30 @@ The CLI reads one bundle file at a time.
   - Deliverable: storage, CLI, API, dashboard, preview resolution, and atomic restore behavior.
   - Acceptance: preview shows current, incoming, selected, resolution, and change status for every changed field.
   - Verification: `python -m pytest tests/test_review_bundles.py`.
-- `milestone-semantic-alignment` — Planned: compare calls by stable identity.
-  - Status: planned.
+- `milestone-semantic-alignment` — Release 1.20 complete: compare calls by stable identity.
+  - Status: complete.
   - User outcome: review inserted, repeated, and reordered calls without position-only drift.
-  - Deliverable: explicit call IDs, parent relationships, ambiguous-match reporting, and comparison coverage.
+  - Deliverable: portable call IDs, parent relationships, ambiguous-match reporting, and comparison coverage.
   - Acceptance: inserted calls, repeated tool names, and missing IDs remain distinguishable.
-  - Verification: `python -m pytest tests/test_comparisons.py tests/test_semantic_alignment.py`.
+  - Verification: `python -m pytest tests/test_comparisons.py tests/test_semantic_alignment.py tests/test_storage.py tests/test_otlp.py`.
 - `milestone-failure-clusters` — Planned: group repeated failures into review sets.
   - Status: planned.
   - User outcome: open one actionable set with counts and representative failure evidence.
   - Deliverable: deterministic error signatures, source-span links, cluster counts, and review output.
   - Acceptance: distinct failure causes stay in separate clusters.
   - Verification: `python -m pytest tests/test_failure_clusters.py`.
+- `milestone-identity-diagnostics` — Planned: show comparison identity coverage before review.
+  - Status: planned.
+  - User outcome: know whether a trace pair can compare without ambiguous matches.
+  - Deliverable: identity coverage in ingestion, API, CLI, and dashboard summaries.
+  - Acceptance: report call-ID coverage, duplicate IDs, and unresolved parent references without changing traces.
+  - Verification: `python -m pytest tests/test_identity_diagnostics.py`.
 
 ## Repository map
 
 `fixtures/` contains meaningful baseline, candidate, and second-agent traces. It also contains a handler config and demo scripts.
 
-`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, and export. It covers review, reports, retention cleanup, scheduled cleanup, and the server scheduler. It covers the failure trend, including the agent filter, window selector, day drill-down, run error summaries, status breakdown, overlay, and the run error timeline. It covers explicit review decisions, decision history, migration behavior, and the CLI and API surfaces. It covers the span detail panel on the error timeline.
+`tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, and export. It covers review, reports, retention cleanup, scheduled cleanup, and the server scheduler. It covers the failure trend, including the agent filter, window selector, day drill-down, run error summaries, status breakdown, overlay, and the run error timeline. It covers semantic comparison alignment, explicit review decisions, decision history, migration behavior, and the CLI and API surfaces. It covers the span detail panel on the error timeline.
 
 Review bundle export, preview, policy resolution, restoration, and atomic failure handling have deterministic coverage.
 
