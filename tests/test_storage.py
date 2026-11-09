@@ -14,5 +14,22 @@ def test_store_ingest_is_idempotent_and_keeps_tool_calls(tmp_path, baseline):
     assert run["spans"][1]["tool_call"]["name"] == "search_catalog"
 
 
+def test_store_round_trips_call_identity_fields(tmp_path, baseline):
+    payload = baseline.model_dump(mode="json")
+    payload["spans"][1]["tool_call"]["call_id"] = "search-1"
+    payload["spans"][1]["tool_call"]["parent_call_id"] = "agent-1"
+    trace = type(baseline).model_validate(payload)
+    store = TraceStore(tmp_path / "identity.db")
+
+    store.ingest(trace)
+
+    run = store.get_run(trace.run_id)
+    assert run["spans"][1]["tool_call"]["call_id"] == "search-1"
+    assert run["spans"][1]["tool_call"]["parent_call_id"] == "agent-1"
+    restored = store.get_trace(trace.run_id)
+    assert restored is not None
+    assert restored.tool_spans()[0].tool_call.call_id == "search-1"
+
+
 def test_store_returns_none_for_unknown_run(tmp_path):
     assert TraceStore(tmp_path / "trace.db").get_run("missing") is None

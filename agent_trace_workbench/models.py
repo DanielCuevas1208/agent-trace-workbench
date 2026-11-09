@@ -20,6 +20,8 @@ class ToolCall(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    call_id: str | None = Field(default=None, min_length=1)
+    parent_call_id: str | None = Field(default=None, min_length=1)
     name: str = Field(min_length=1)
     arguments: dict[str, Any] = Field(default_factory=dict)
     result: Any = None

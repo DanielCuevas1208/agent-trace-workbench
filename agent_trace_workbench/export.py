@@ -53,8 +53,15 @@ _NO = "no"
 _COMPARISON_HEADERS = [
     "index",
     "state",
+    "alignment",
+    "ambiguous",
     "tool_a",
     "tool_b",
+    "span_id_a",
+    "span_id_b",
+    "call_id_a",
+    "call_id_b",
+    "parent_changed",
     "arguments_changed",
     "outcome_changed",
     "result_changed",
@@ -64,11 +71,18 @@ _COMPARISON_HEADERS = [
     "error_b",
     "argument_keys_changed",
     "result_keys_changed",
+    "ambiguity_reason",
+    "candidates_a",
+    "candidates_b",
 ]
 
 _RUN_TOOLS_HEADERS = [
     "sequence",
+    "span_id",
+    "parent_span_id",
     "tool_name",
+    "call_id",
+    "parent_call_id",
     "status",
     "start_time",
     "end_time",
@@ -153,8 +167,15 @@ def comparison_to_csv(report: CompareReport) -> str:
                 {
                     "index": diff.index,
                     "state": diff.state,
+                    "alignment": diff.alignment,
+                    "ambiguous": _flag(diff.ambiguous),
                     "tool_a": diff.tool_a or "",
                     "tool_b": diff.tool_b or "",
+                    "span_id_a": diff.span_id_a or "",
+                    "span_id_b": diff.span_id_b or "",
+                    "call_id_a": diff.call_id_a or "",
+                    "call_id_b": diff.call_id_b or "",
+                    "parent_changed": _flag(diff.parent_changed),
                     "arguments_changed": _flag(diff.arguments_changed),
                     "outcome_changed": _flag(diff.outcome_changed),
                     "result_changed": _flag(diff.result_changed),
@@ -164,6 +185,9 @@ def comparison_to_csv(report: CompareReport) -> str:
                     "error_b": diff.error_b or "",
                     "argument_keys_changed": ", ".join(diff.argument_keys_changed),
                     "result_keys_changed": ", ".join(diff.result_keys_changed),
+                    "ambiguity_reason": diff.ambiguity_reason or "",
+                    "candidates_a": ", ".join(diff.candidates_a),
+                    "candidates_b": ", ".join(diff.candidates_b),
                 }
             )
         return _to_csv(_COMPARISON_HEADERS, rows)
@@ -183,7 +207,11 @@ def run_tools_to_csv(run: dict[str, Any]) -> str:
             rows.append(
                 {
                     "sequence": span.get("sequence", ""),
+                    "span_id": span.get("span_id", ""),
+                    "parent_span_id": span.get("parent_span_id", ""),
                     "tool_name": call.get("name") or span.get("name", ""),
+                    "call_id": call.get("call_id") or "",
+                    "parent_call_id": call.get("parent_call_id") or "",
                     "status": span.get("status", ""),
                     "start_time": span.get("start_time", ""),
                     "end_time": span.get("end_time", ""),

@@ -134,6 +134,10 @@ def test_api_compare_json_still_has_aggregates(tmp_path, baseline, candidate):
     assert body["removed_tools"] == 0
     assert body["outcome_changed_tools"] == 1
     assert body["error_changed_tools"] == 1
+    assert body["identity_matches"] == 2
+    assert body["position_fallbacks"] == 0
+    assert body["ambiguous_matches"] == 0
+    assert body["tool_diffs"][0]["alignment"] == "parent-tool"
     assert body["tool_diffs"][1]["result_keys_changed"] == ["available"]
 
 

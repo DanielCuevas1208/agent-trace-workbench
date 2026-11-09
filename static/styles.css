@@ -110,6 +110,7 @@ select { min-height: 44px; padding: 0 12px; font-family: inherit; }
 .badge { display: inline-flex; padding: 5px 8px; border: 1px solid currentColor; font: 800 9px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }
 .badge-ok { color: var(--teal); background: rgba(30,139,132,.06); }
 .badge-error { color: var(--coral); background: rgba(217,95,79,.06); }
+.badge-warn { color: #9a6515; background: rgba(195,137,35,.10); }
 .badge-unset { color: var(--muted); }
 .badge-label { color: var(--blue); border-color: var(--blue); background: rgba(44,111,159,.08); }
 .review-decision { display: inline-flex; padding: 5px 8px; border: 1px solid currentColor; font: 800 9px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .06em; text-transform: uppercase; }
@@ -235,6 +236,8 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--navy); c
 .report-section { padding-top: 56px; }
 .report-section-last { padding-bottom: 88px; }
 .compare-failure { margin-top: 18px; }
+.compare-warning { margin: 0 0 16px; border-left-color: #c38923; color: #81530d; }
+.alignment-note { display: block; margin-top: 5px; color: #9a6515; font: 9px ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; }
 .section-tools { display: flex; align-items: center; gap: 14px; }
 .section-tools .button { min-height: 36px; padding: 0 11px; font-size: 10px; }
 .state-filter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; }

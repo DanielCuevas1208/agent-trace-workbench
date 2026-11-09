@@ -185,6 +185,8 @@ def _tool_call_from_workbench(workbench: dict[str, Any]) -> ToolCall | None:
         return None
     outcome = workbench.get("workbench.tool_call.outcome")
     return ToolCall(
+        call_id=_text_value(workbench.get("workbench.tool_call.call_id")),
+        parent_call_id=_text_value(workbench.get("workbench.tool_call.parent_call_id")),
         name=str(name),
         arguments=_json_value(workbench.get("workbench.tool_call.arguments")) or {},
         result=_json_value(workbench.get("workbench.tool_call.result")),
@@ -240,6 +242,10 @@ def _span_to_otlp(trace: TraceDocument, span: TraceSpan) -> dict[str, Any]:
         attributes["workbench.tool_call.outcome"] = call.outcome
         if call.error is not None:
             attributes["workbench.tool_call.error"] = call.error
+        if call.call_id is not None:
+            attributes["workbench.tool_call.call_id"] = call.call_id
+        if call.parent_call_id is not None:
+            attributes["workbench.tool_call.parent_call_id"] = call.parent_call_id
 
     events = attributes.pop("otlp.events", None)
     links = attributes.pop("otlp.links", None)
@@ -423,6 +429,12 @@ def _json_value(value: Any) -> Any:
         return json.loads(value)
     except json.JSONDecodeError:
         return value
+
+
+def _text_value(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
 
 
 def _trace_id_hex(value: str) -> str:

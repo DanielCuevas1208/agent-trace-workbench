@@ -100,6 +100,19 @@ def test_round_trip_preserves_failed_tool_run(candidate):
     assert tool.tool_call.error == "reservation window expired"
 
 
+def test_round_trip_preserves_tool_call_identity(baseline):
+    source = baseline.model_copy(deep=True)
+    source.spans[1].tool_call.call_id = "search-1"
+    source.spans[1].tool_call.parent_call_id = "agent-1"
+
+    restored = parse_otlp_json(trace_to_otlp_json(source))[0]
+
+    tool = restored.tool_spans()[0].tool_call
+    assert tool is not None
+    assert tool.call_id == "search-1"
+    assert tool.parent_call_id == "agent-1"
+
+
 def test_round_trip_preserves_nested_attributes(baseline):
     source = baseline.model_copy(deep=True)
     source.spans[1].attributes["note"] = {"depth": 3}

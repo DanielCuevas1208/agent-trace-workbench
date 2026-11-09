@@ -4,6 +4,20 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.20.0 - 2026-11-09
+
+### Added
+
+- Semantic comparison alignment using call IDs, span IDs, and parent/tool context.
+- Explicit ambiguity details for repeated names, missing IDs, and positional fallbacks.
+- Portable call identity fields in SQLite storage and OTLP JSON export.
+- Deterministic coverage for inserted calls, repeated names, nested parents, and missing IDs.
+
+### Changed
+
+- The comparison page and CSV export show alignment evidence.
+- Version numbers moved to 1.20.0.
+
 ## 1.19.0 - 2026-10-20
 
 ### Added
