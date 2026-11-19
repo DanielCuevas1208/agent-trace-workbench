@@ -23,6 +23,8 @@ from .export import (
     comparison_to_csv,
     day_runs_to_csv,
     error_timeline_to_csv,
+    failure_clusters_summary_to_csv,
+    failure_clusters_to_csv,
     report_to_csv,
     review_bundle_to_json,
     run_tools_to_csv,
@@ -255,6 +257,27 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             },
         )
 
+    @app.get("/clusters", response_class=HTMLResponse)
+    def clusters_page(
+        request: Request,
+        agent: str | None = Query(default=None),
+        sample: int = Query(default=5, ge=1, le=50),
+    ) -> Any:
+        report = app.state.store.failure_clusters(agent_name=agent, sample_limit=sample)
+        return render_template(
+            request,
+            "clusters.html",
+            {
+                "report": report,
+                "agents": app.state.store.trend_agents(),
+                "selected_agent": agent or "",
+                "sample_limit": sample,
+                "store": app.state.store.store_info(),
+                "telemetry": _telemetry_info(),
+                "scheduler": _scheduler_status(app),
+            },
+        )
+
     @app.get("/report", response_class=HTMLResponse)
     def report_page(
         request: Request,
@@ -314,6 +337,32 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         status: Literal["ok", "error"] | None = Query(default=None),
     ) -> list[dict[str, Any]]:
         return app.state.store.unreviewed_runs(limit, status=status, offset=offset)
+
+    @app.get("/api/failure-clusters", response_model=None)
+    def api_failure_clusters(
+        agent: str | None = Query(default=None),
+        sample: int = Query(default=5, ge=1, le=50),
+        export_format: str = Query(default="json", alias="format"),
+    ) -> Response | dict[str, Any]:
+        report = app.state.store.failure_clusters(agent_name=agent, sample_limit=sample)
+        if export_format == "csv":
+            return _download_response(
+                failure_clusters_to_csv(report),
+                "failure-clusters.csv",
+                "text/csv; charset=utf-8",
+            )
+        if export_format == "csv-summary":
+            return _download_response(
+                failure_clusters_summary_to_csv(report),
+                "failure-cluster-summary.csv",
+                "text/csv; charset=utf-8",
+            )
+        if export_format != "json":
+            raise HTTPException(
+                status_code=400,
+                detail="format must be 'json', 'csv', or 'csv-summary'",
+            )
+        return report
 
     @app.post("/api/review/labels")
     def api_bulk_label(payload: BulkLabelRequest) -> dict[str, Any]:
@@ -773,6 +822,13 @@ def _fallback_html(name: str, context: dict[str, Any]) -> str:
             for run in runs
         )
         return f"<html><body><h1>Review runs</h1><ul>{cards}</ul></body></html>"
+    if name == "clusters.html":
+        report = context.get("report", {})
+        lines = "".join(
+            f"<li>{escape(cluster.get('message', ''))}</li>"
+            for cluster in report.get("clusters", [])
+        )
+        return f"<html><body><h1>Failure clusters</h1><ul>{lines}</ul></body></html>"
     if name == "report.html":
         totals = escape(str(context["report"]["totals"]))
         return f"<html><body><h1>Library report</h1><pre>{totals}</pre></body></html>"

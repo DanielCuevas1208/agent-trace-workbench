@@ -4,6 +4,20 @@ All notable changes to Agent Trace Workbench appear in this file.
 
 The version format follows a release cycle. A release adds one coherent capability to the workbench.
 
+## 1.21.0 - 2026-11-18
+
+### Added
+
+- Deterministic failure clusters that group repeated span errors by signature.
+- Cluster counts, representative evidence, and links back to source spans.
+- `GET /api/failure-clusters`, the `/clusters` page, and the `atw clusters` command.
+- CSV exports for cluster samples and cluster summaries.
+- Deterministic coverage for distinct messages, multi-run grouping, and agent filters.
+
+### Changed
+
+- Version numbers moved to 1.21.0.
+
 ## 1.20.0 - 2026-11-09
 
 ### Added

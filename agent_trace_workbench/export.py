@@ -151,6 +151,30 @@ _TIMELINE_HEADERS = [
     "error",
 ]
 
+_FAILURE_CLUSTER_HEADERS = [
+    "signature",
+    "kind",
+    "subject",
+    "message",
+    "occurrence_count",
+    "run_count",
+    "run_id",
+    "span_id",
+    "agent_name",
+    "span_name",
+]
+
+_FAILURE_CLUSTER_SUMMARY_HEADERS = [
+    "signature",
+    "kind",
+    "subject",
+    "message",
+    "occurrence_count",
+    "run_count",
+    "representative_run_id",
+    "representative_span_id",
+]
+
 _SECTION_TOTAL = "total"
 _SECTION_SOURCE = "source"
 _SECTION_AGENT = "agent"
@@ -440,6 +464,61 @@ def error_timeline_to_csv(timeline: dict[str, Any]) -> str:
                 }
             )
         return _to_csv(_TIMELINE_HEADERS, rows)
+
+
+def failure_clusters_to_csv(report: dict[str, Any]) -> str:
+    """Render failure clusters as a CSV document with one row per span link.
+
+    The document repeats cluster counts on every row so the file stays
+    self-describing in a spreadsheet tool.
+    """
+
+    clusters = report.get("clusters", [])
+    with traced_operation(
+        "export.failure_clusters_csv",
+        {"clusters.count": len(clusters), "clusters.occurrences": report.get("occurrence_count", 0)},
+    ):
+        rows: list[dict[str, Any]] = []
+        for cluster in clusters:
+            for occurrence in cluster.get("occurrences", []):
+                rows.append(
+                    {
+                        "signature": cluster.get("signature", ""),
+                        "kind": cluster.get("kind", ""),
+                        "subject": cluster.get("subject", ""),
+                        "message": cluster.get("message", ""),
+                        "occurrence_count": cluster.get("occurrence_count", 0),
+                        "run_count": cluster.get("run_count", 0),
+                        "run_id": occurrence.get("run_id", ""),
+                        "span_id": occurrence.get("span_id", ""),
+                        "agent_name": occurrence.get("agent_name", ""),
+                        "span_name": occurrence.get("name", ""),
+                    }
+                )
+        return _to_csv(_FAILURE_CLUSTER_HEADERS, rows)
+
+
+def failure_clusters_summary_to_csv(report: dict[str, Any]) -> str:
+    """Render one summary row per failure cluster."""
+
+    clusters = report.get("clusters", [])
+    with traced_operation("export.failure_clusters_summary_csv", {"clusters.count": len(clusters)}):
+        rows: list[dict[str, Any]] = []
+        for cluster in clusters:
+            representative = cluster.get("representative") or {}
+            rows.append(
+                {
+                    "signature": cluster.get("signature", ""),
+                    "kind": cluster.get("kind", ""),
+                    "subject": cluster.get("subject", ""),
+                    "message": cluster.get("message", ""),
+                    "occurrence_count": cluster.get("occurrence_count", 0),
+                    "run_count": cluster.get("run_count", 0),
+                    "representative_run_id": representative.get("run_id", ""),
+                    "representative_span_id": representative.get("span_id", ""),
+                }
+            )
+        return _to_csv(_FAILURE_CLUSTER_SUMMARY_HEADERS, rows)
 
 
 def day_runs_to_csv(day: str, runs: list[dict[str, Any]], agent_name: str = "") -> str:

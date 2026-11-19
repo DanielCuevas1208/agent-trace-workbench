@@ -322,4 +322,13 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--navy); c
 .scheduler-stats > div { padding: 16px 18px; border: 1px solid var(--line); background: #fff; }
 .scheduler-stats .field-label { display: block; margin-bottom: 8px; }
 .scheduler-stats .mono { color: var(--navy); font-size: 12px; }
+.cluster-list { display: flex; flex-direction: column; gap: 22px; margin-top: 22px; }
+.cluster-card { padding: 22px 24px; }
+.cluster-card-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 14px; }
+.cluster-card-heading h3 { margin: 8px 0 6px; font-size: 20px; }
+.cluster-message { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.cluster-counts { display: flex; gap: 18px; text-align: right; color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .06em; text-transform: uppercase; }
+.cluster-counts strong { display: block; margin-bottom: 4px; color: var(--navy); font: 500 22px Georgia, serif; letter-spacing: -.01em; text-transform: none; }
+.cluster-signature { margin: 0 0 16px; color: var(--blue); font-size: 11px; word-break: break-all; }
+.cluster-more { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
 @media (max-width: 800px) { .shell { width: min(100% - 32px, 620px); } .topbar { padding: 0 16px; } nav { gap: 15px; } .nav-api { display: none; } .hero { padding: 63px 0 54px; } .workspace-grid, .run-grid, .metric-grid { grid-template-columns: 1fr; } .metric-grid-four { grid-template-columns: 1fr 1fr; } .diff-detail-grid { grid-template-columns: 1fr; } .compare-form { grid-template-columns: 1fr; gap: 4px; } .compare-vs { padding: 10px 0 0; text-align: left; } .compare-form .button { margin-top: 13px; } .detail-hero { display: block; } .detail-actions { margin-top: 25px; } .tool-grid { grid-template-columns: 1fr; } .filter-bar { grid-template-columns: 1fr; } .footer { display: block; } .footer span { display: block; margin-top: 6px; } .scheduler-stats { grid-template-columns: 1fr 1fr; } .trend-foot .button, .trend-legend .button { margin-left: 0; } }

@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Callable, TypeVar
 from uuid import uuid4
 
+from .failure_clusters import build_failure_clusters, stable_failure_message
 from .models import ReviewBundle, ReviewContext, ReviewRestorePolicy, TraceDocument, ensure_utc
 from .telemetry import traced_operation
 
@@ -1239,6 +1240,66 @@ class TraceStore:
             "events": events,
         }
 
+    def failure_clusters(
+        self,
+        *,
+        agent_name: str | None = None,
+        sample_limit: int = 5,
+    ) -> dict[str, Any]:
+        """Group failed spans into deterministic clusters for review.
+
+        Each cluster counts matching failures across runs. The response
+        includes representative evidence and links back to source spans.
+        """
+
+        attributes: dict[str, Any] = {"clusters.sample_limit": sample_limit}
+        if agent_name:
+            attributes["clusters.agent"] = agent_name
+        with traced_operation("storage.failure_clusters", attributes):
+            with self._connect() as connection:
+                query = """
+                    SELECT s.run_id, s.span_id, s.name, s.kind, s.status,
+                           s.tool_name, s.error, s.outcome,
+                           r.agent_name, r.started_at
+                    FROM spans s
+                    JOIN runs r ON r.run_id = s.run_id
+                    WHERE s.status = 'error' OR s.outcome = 'failure'
+                """
+                params: list[Any] = []
+                if agent_name:
+                    query += " AND r.agent_name = ?"
+                    params.append(agent_name)
+                query += (
+                    " ORDER BY r.started_at DESC, s.run_id, "
+                    "s.sequence_index IS NULL, s.sequence_index, s.start_time, s.span_id"
+                )
+                rows = connection.execute(query, params).fetchall()
+        occurrences: list[dict[str, Any]] = []
+        for row in rows:
+            occurrences.append(
+                {
+                    "run_id": row["run_id"],
+                    "span_id": row["span_id"],
+                    "name": row["name"],
+                    "kind": row["kind"],
+                    "status": row["status"],
+                    "tool_name": row["tool_name"] or "",
+                    "message": stable_failure_message(
+                        error=row["error"],
+                        outcome=row["outcome"],
+                        name=row["name"],
+                    ),
+                    "agent_name": row["agent_name"],
+                    "started_at": row["started_at"],
+                }
+            )
+        report = build_failure_clusters(occurrences, sample_limit=sample_limit)
+        if agent_name:
+            report["agent_name"] = agent_name
+        else:
+            report["agent_name"] = ""
+        return report
+
     def span_detail(self, run_id: str, span_id: str) -> dict[str, Any] | None:
         """Return the full record of one span with run-relative offsets.
 
@@ -1566,11 +1627,11 @@ def _error_message(row: sqlite3.Row) -> str:
     a generated message, so the timeline always has text to show.
     """
 
-    if row["error"]:
-        return row["error"]
-    if row["outcome"] == "failure":
-        return f"{row['name']} reported a failure outcome"
-    return f"{row['name']} ended with status error"
+    return stable_failure_message(
+        error=row["error"],
+        outcome=row["outcome"],
+        name=row["name"],
+    )
 
 
 def _is_failed_span(row: sqlite3.Row) -> bool:

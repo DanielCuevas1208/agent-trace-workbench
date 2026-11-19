@@ -50,6 +50,8 @@ Release 1.19 adds explicit restore policies. Keep local review fields or use bun
 
 Release 1.20 adds semantic comparison alignment. Stable call IDs and parent relationships prevent inserted calls from shifting later matches.
 
+Release 1.21 adds failure clusters for repeated span errors. Group matching failures by signature. Read counts and open linked spans from one review set.
+
 ## Value
 
 Agent debugging needs evidence at tool boundaries.
@@ -103,7 +105,8 @@ Storage restores trace rows and review rows in one transaction.
 - `otlp.py` converts the OTLP JSON encoding to and from the trace contract.
 - `replay.py` runs guarded local handlers and records mismatches.
 - `compare.py` aligns tool calls by stable IDs, parent/tool context, and visible positional fallbacks.
-- `export.py` renders comparisons, run tool calls, library reports, failure trends, error timelines, and day run lists as CSV files.
+- `failure_clusters.py` builds deterministic signatures and review sets from failed spans.
+- `export.py` renders comparisons, run tool calls, library reports, failure trends, error timelines, failure clusters, and day run lists as CSV files.
 - It also renders versioned review bundles with explicit local context.
 - `collector.py` posts recorded runs to a local collector over OTLP HTTP JSON.
 - `main.py` serves the interface and the JSON API. It also shapes review actions, dashboard charts, and the run error timeline.
@@ -1379,6 +1382,56 @@ curl.exe "http://127.0.0.1:8000/api/review?limit=20&offset=20"
 
 The review page shows visible rows and the full filtered count. Use Previous or Next to move through the queue.
 
+## Failure clusters
+
+Group repeated span errors before you open each run.
+
+Open the clusters page or read the JSON report.
+
+```powershell
+curl.exe "http://127.0.0.1:8000/api/failure-clusters"
+```
+
+Each cluster carries a deterministic signature, occurrence count, run count, and sample links.
+
+```json
+{
+  "signature_version": 1,
+  "cluster_count": 1,
+  "occurrence_count": 2,
+  "clusters": [
+    {
+      "signature": "v1|tool|reserve_inventory|reservation window expired",
+      "kind": "tool",
+      "subject": "reserve_inventory",
+      "message": "reservation window expired",
+      "occurrence_count": 2,
+      "run_count": 2,
+      "representative": {
+        "run_id": "run-candidate-001",
+        "span_id": "span-tool-103"
+      }
+    }
+  ]
+}
+```
+
+Distinct error messages stay in separate clusters even when the tool name matches.
+
+Download sample links or a one-row summary per cluster.
+
+```powershell
+curl.exe -o failure-clusters.csv "http://127.0.0.1:8000/api/failure-clusters?format=csv"
+curl.exe -o failure-cluster-summary.csv "http://127.0.0.1:8000/api/failure-clusters?format=csv-summary"
+```
+
+Use the CLI for scripts.
+
+```powershell
+python -m agent_trace_workbench.cli clusters
+python -m agent_trace_workbench.cli clusters --agent catalog-assistant --format csv-summary
+```
+
 ## Bulk decisions
 
 Record one decision for several runs.
@@ -1743,9 +1796,9 @@ curl.exe -X POST http://127.0.0.1:8000/api/traces `
 
 ## Test status
 
-The suite covers storage, ingestion, replay, semantic comparison, search, annotations, review, reports, retention, and cleanup.
+The suite covers storage, ingestion, replay, semantic comparison, search, annotations, review, reports, retention, cleanup, and failure clusters.
 
-It covers the CLI, API, dashboard, collector export, scheduler, CSV exports, and review-bundle previews.
+It covers the CLI, API, dashboard, collector export, scheduler, CSV exports, review-bundle previews, and the clusters page.
 
 Semantic comparison tests cover inserted calls, repeated tool names, nested parents, and missing IDs.
 
@@ -1815,6 +1868,10 @@ A dry-run sweep never records history. Use the real sweep to keep the log curren
 The failure trend groups by the calendar day a run started. It uses the UTC day.
 
 The trend counts a run by its recorded status. A run with any error span counts as a failure.
+
+Failure clusters group by exact kind, subject, and message text. Dynamic values such as request IDs stay in separate clusters.
+
+The clusters page shows a sample of spans per cluster. Raise the sample limit or use CSV to read more links.
 
 The status breakdown groups by the same UTC calendar day as the trend.
 
@@ -1957,8 +2014,8 @@ The CLI reads one bundle file at a time.
   - Deliverable: portable call IDs, parent relationships, ambiguous-match reporting, and comparison coverage.
   - Acceptance: inserted calls, repeated tool names, and missing IDs remain distinguishable.
   - Verification: `python -m pytest tests/test_comparisons.py tests/test_semantic_alignment.py tests/test_storage.py tests/test_otlp.py`.
-- `milestone-failure-clusters` — Planned: group repeated failures into review sets.
-  - Status: planned.
+- `milestone-failure-clusters` — Release 1.21 complete: group repeated failures into review sets.
+  - Status: complete.
   - User outcome: open one actionable set with counts and representative failure evidence.
   - Deliverable: deterministic error signatures, source-span links, cluster counts, and review output.
   - Acceptance: distinct failure causes stay in separate clusters.
@@ -1969,6 +2026,12 @@ The CLI reads one bundle file at a time.
   - Deliverable: identity coverage in ingestion, API, CLI, and dashboard summaries.
   - Acceptance: report call-ID coverage, duplicate IDs, and unresolved parent references without changing traces.
   - Verification: `python -m pytest tests/test_identity_diagnostics.py`.
+- `milestone-cluster-normalization` — Planned: fold dynamic tokens into fewer failure clusters.
+  - Status: planned.
+  - User outcome: see one cluster when only an ID or timestamp changes in the message.
+  - Deliverable: documented normalization rules, preview before clustering, and unchanged exact-signature mode.
+  - Acceptance: UUID and ISO timestamp tokens normalize; distinct messages stay separate; exact mode matches Release 1.21 output.
+  - Verification: `python -m pytest tests/test_failure_cluster_normalization.py`.
 
 ## Repository map
 
@@ -1977,6 +2040,8 @@ The CLI reads one bundle file at a time.
 `tests/` contains deterministic tests for the core. It covers coordination, guards, search, annotations, OTLP, and export. It covers review, reports, retention cleanup, scheduled cleanup, and the server scheduler. It covers the failure trend, including the agent filter, window selector, day drill-down, run error summaries, status breakdown, overlay, and the run error timeline. It covers semantic comparison alignment, explicit review decisions, decision history, migration behavior, and the CLI and API surfaces. It covers the span detail panel on the error timeline.
 
 Review bundle export, preview, policy resolution, restoration, and atomic failure handling have deterministic coverage.
+
+Failure cluster signatures, counts, span links, CSV exports, and the clusters page have deterministic coverage.
 
 `static/` and `templates/` contain the presentation layer.
 
