@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Failure clusters | Agent Trace Workbench{% endblock %}
+{% block content %}
+<section class="detail-hero review-hero">
+    <div>
+        <div class="eyebrow">FAILURE CLUSTERS / REVIEW SETS</div>
+        <h1>Group repeated failures before you open each run.</h1>
+        <p class="hero-copy">Each cluster uses a deterministic signature. Counts link back to the spans that produced the evidence.</p>
+    </div>
+    <div class="detail-actions">
+        <a class="button button-quiet" href="/api/failure-clusters?sample={{ sample_limit }}{% if selected_agent %}&amp;agent={{ selected_agent }}{% endif %}">JSON</a>
+        <a class="button button-quiet" href="/api/failure-clusters?format=csv&amp;sample={{ sample_limit }}{% if selected_agent %}&amp;agent={{ selected_agent }}{% endif %}">CSV</a>
+        <a class="button button-primary" href="/review">Review queue <span aria-hidden="true">&#8594;</span></a>
+    </div>
+</section>
+<section class="metric-grid detail-metrics">
+    <div class="metric-card {% if report.cluster_count %}metric-alert{% endif %}"><span class="metric-label">Clusters</span><strong>{{ report.cluster_count }}</strong><span class="metric-note">distinct failure causes</span></div>
+    <div class="metric-card"><span class="metric-label">Failed spans</span><strong>{{ report.occurrence_count }}</strong><span class="metric-note">across the library</span></div>
+    <div class="metric-card"><span class="metric-label">Sample limit</span><strong>{{ sample_limit }}</strong><span class="metric-note">links per cluster</span></div>
+</section>
+<section class="section-block review-section">
+    <div class="section-heading"><div><div class="eyebrow">CLUSTER FILTER</div><h2>Scope the library</h2></div><span class="section-meta">signature version {{ report.signature_version }}</span></div>
+    <form method="get" action="/clusters" class="trend-filter" role="search">
+        <label class="visually-hidden" for="cluster-agent">Filter clusters by agent</label>
+        <select id="cluster-agent" name="agent">
+            <option value="">All agents</option>
+            {% for agent in agents %}<option value="{{ agent }}"{% if agent == selected_agent %} selected{% endif %}>{{ agent }}</option>{% endfor %}
+        </select>
+        <label class="visually-hidden" for="cluster-sample">Sample size</label>
+        <select id="cluster-sample" name="sample">
+            {% for option in [3, 5, 10, 20] %}<option value="{{ option }}"{% if option == sample_limit %} selected{% endif %}>{{ option }} links</option>{% endfor %}
+        </select>
+        <button class="button button-primary" type="submit">Filter</button>
+        {% if selected_agent or sample_limit != 5 %}<a class="button button-quiet" href="/clusters">Clear</a>{% endif %}
+    </form>
+    {% if report.clusters %}
+    <div class="cluster-list">
+        {% for cluster in report.clusters %}
+        <article class="panel cluster-card">
+            <header class="cluster-card-heading">
+                <div>
+                    <span class="badge badge-error">{{ cluster.kind }}</span>
+                    <h3>{{ cluster.subject }}</h3>
+                    <p class="cluster-message">{{ cluster.message }}</p>
+                </div>
+                <div class="cluster-counts">
+                    <div><strong>{{ cluster.occurrence_count }}</strong><span>failed span{% if cluster.occurrence_count != 1 %}s{% endif %}</span></div>
+                    <div><strong>{{ cluster.run_count }}</strong><span>run{% if cluster.run_count != 1 %}s{% endif %}</span></div>
+                </div>
+            </header>
+            <p class="cluster-signature mono">{{ cluster.signature }}</p>
+            <div class="table-wrap"><table><thead><tr><th>Run</th><th>Span</th><th>Agent</th><th>Name</th><th>Started</th><th>Actions</th></tr></thead><tbody>
+                {% for item in cluster.occurrences %}
+                <tr>
+                    <td class="mono">{{ item.run_id }}</td>
+                    <td class="mono">{{ item.span_id }}</td>
+                    <td>{{ item.agent_name }}</td>
+                    <td>{{ item.name }}</td>
+                    <td class="mono">{{ item.started_at }}</td>
+                    <td class="table-actions"><a class="button button-quiet" href="{{ item.span_href }}">Inspect</a></td>
+                </tr>
+                {% endfor %}
+            </tbody></table></div>
+            {% if cluster.occurrence_count > cluster.occurrences|length %}
+            <p class="cluster-more">+ {{ cluster.occurrence_count - cluster.occurrences|length }} more in this cluster. Raise the sample limit or use the CSV export.</p>
+            {% endif %}
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state"><span class="empty-mark">&#10003;</span><h3>No failed spans to cluster</h3><p>Ingest a trace with tool or agent errors to build review sets.</p></div>
+    {% endif %}
+</section>
+{% endblock %}

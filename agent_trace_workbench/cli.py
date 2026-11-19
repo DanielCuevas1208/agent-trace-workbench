@@ -16,6 +16,8 @@ from .export import (
     comparison_to_csv,
     day_runs_to_csv,
     error_timeline_to_csv,
+    failure_clusters_summary_to_csv,
+    failure_clusters_to_csv,
     report_to_csv,
     review_bundle_to_json,
     run_tools_to_csv,
@@ -172,6 +174,28 @@ def build_parser() -> argparse.ArgumentParser:
         dest="run_ids",
         default=None,
         help="Run ID for a label or decision; repeat for several runs",
+    )
+
+    clusters = subparsers.add_parser(
+        "clusters", help="Group repeated span failures into review sets"
+    )
+    clusters.add_argument(
+        "--agent",
+        default=None,
+        help="Restrict clusters to one agent name",
+    )
+    clusters.add_argument(
+        "--sample",
+        type=int,
+        default=5,
+        dest="sample_limit",
+        help="Sample occurrences per cluster (default: 5)",
+    )
+    clusters.add_argument(
+        "--format",
+        choices=["json", "csv", "csv-summary"],
+        default="json",
+        help="Output format",
     )
 
     report = subparsers.add_parser(
@@ -537,6 +561,18 @@ def main() -> None:
                     indent=2,
                 )
             )
+    elif args.command == "clusters":
+        if args.sample_limit < 1 or args.sample_limit > 50:
+            raise SystemExit("--sample must be between 1 and 50")
+        clusters_report = store.failure_clusters(
+            agent_name=args.agent, sample_limit=args.sample_limit
+        )
+        if args.format == "csv":
+            print(failure_clusters_to_csv(clusters_report), end="")
+        elif args.format == "csv-summary":
+            print(failure_clusters_summary_to_csv(clusters_report), end="")
+        else:
+            print(json.dumps(clusters_report, indent=2))
     elif args.command == "report":
         if args.older_than_days < 1:
             raise SystemExit("--older-than must be at least 1 day")
